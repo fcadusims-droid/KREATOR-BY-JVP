@@ -25,11 +25,17 @@ from kreator.editor import Condenser, render_segments  # noqa: E402
 from kreator.signal_layer import analyze_video  # noqa: E402
 from kreator.speech import presence_series, transcribe  # noqa: E402
 from kreator.types import format_tc  # noqa: E402
+from kreator.vlm import (  # noqa: E402
+    LocalVLMBackend, label_keyframes, select_keyframes, visual_keep_series,
+)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Kreator K Editor: condense a video.")
     ap.add_argument("--video", required=True, help="path to the source video")
+    ap.add_argument("--bundle", default=None,
+                    help="cached bundle JSON (from analyze_cache.py) — skips "
+                         "re-analysis and reuses its baked-in speech")
     ap.add_argument("--target-keep", type=float, default=0.35,
                     help="fraction of the most-active video to keep (0..1)")
     ap.add_argument("--pad", type=float, default=1.0,
@@ -40,6 +46,11 @@ def main() -> int:
                     help="transcribe dialogue (CPU Whisper) and keep talky moments")
     ap.add_argument("--whisper-model", default="base",
                     help="faster-whisper model size (tiny/base/small)")
+    ap.add_argument("--vlm", action="store_true",
+                    help="describe sampled keyframes with a local CPU VLM and keep "
+                         "scenic/dialogue/action scenes (slow, offline, no GPU)")
+    ap.add_argument("--vlm-frames", type=int, default=20,
+                    help="how many keyframes the VLM looks at")
     ap.add_argument("-o", "--out", default="out/edited.mp4",
                     help="edited video output path")
     ap.add_argument("--plan-out", default=None, help="edit-plan JSON output path")
@@ -48,12 +59,18 @@ def main() -> int:
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
-    print(f"Analyzing {args.video} …")
-    bundle = analyze_video(args.video, verbose=args.verbose)
+    if args.bundle:
+        from kreator.types import SignalBundle
+        print(f"Loading cached bundle {args.bundle} …")
+        bundle = SignalBundle.from_dict(json.loads(Path(args.bundle).read_text()))
+    else:
+        print(f"Analyzing {args.video} …")
+        bundle = analyze_video(args.video, verbose=args.verbose)
     has_audio = any(a > 0.0 for a in bundle.audio)
 
-    speech = None
-    if args.speech:
+    # A cached bundle already has speech presence baked into bundle.speech.
+    speech = bundle.speech if (args.bundle and any(bundle.speech)) else None
+    if args.speech and not args.bundle:
         print("Transcribing dialogue (Whisper, CPU)…")
         segments = transcribe(args.video, model_size=args.whisper_model,
                               verbose=args.verbose)
@@ -65,12 +82,27 @@ def main() -> int:
             json.dumps([s.to_dict() for s in segments], indent=2), encoding="utf-8")
         print(f"  wrote transcript: {transcript_out}")
 
+    visual_keep = None
+    if args.vlm:
+        keyframes = select_keyframes(bundle, max_frames=args.vlm_frames)
+        print(f"Describing {len(keyframes)} keyframes with a local VLM (CPU, slow)…")
+        labels = label_keyframes(args.video, keyframes, LocalVLMBackend(),
+                                 verbose=args.verbose)
+        visual_keep = visual_keep_series(labels, bundle.times)
+        from collections import Counter
+        kinds = Counter(lab.scene_type for lab in labels)
+        print(f"  scene types: {dict(kinds)}")
+        labels_out = str(Path(args.out).with_suffix(".scenes.json"))
+        Path(labels_out).write_text(
+            json.dumps([lab.to_dict() for lab in labels], indent=2), encoding="utf-8")
+        print(f"  wrote scene labels: {labels_out}")
+
     condenser = Condenser(
         target_keep=args.target_keep,
         pad_seconds=args.pad,
         min_cut_seconds=args.min_cut,
     )
-    plan = condenser.plan(bundle, speech=speech)
+    plan = condenser.plan(bundle, speech=speech, visual_keep=visual_keep)
 
     print(f"\nOriginal: {format_tc(plan.original_duration)}  →  "
           f"Edited: {format_tc(plan.kept_duration)}  "

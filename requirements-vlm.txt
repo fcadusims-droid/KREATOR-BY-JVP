@@ -1,0 +1,12 @@
+# Kreator — local, offline VLM for K Editor --vlm (CPU only, no GPU).
+# Install the CPU wheels so no CUDA libraries are pulled in:
+#   pip install -r requirements-vlm.txt --extra-index-url https://download.pytorch.org/whl/cpu
+#
+# Runs SmolVLM-2.2B on CPU to describe sampled keyframes. Slow (~45s/frame) but
+# offline and free; nothing leaves the machine.
+
+torch>=2.1
+torchvision>=0.16          # required by SmolVLM's image processor
+transformers>=4.49
+num2words>=0.5             # SmolVLM processor dependency
+pillow>=10.0
