@@ -112,6 +112,20 @@ def test_percentile_bounds():
     assert percentile(xs, 1.0) == 0.5
 
 
+def test_render_filtergraph_scales_to_height():
+    from kreator.editor.render import _build_filtergraph
+    from kreator.editor.condenser import EditPlan, KeepSegment
+    from kreator.types import Timespan
+
+    plan = EditPlan([KeepSegment(Timespan(10.0, 20.0), 0.5)], 60.0, 0.3)
+    # No height → keep source, map [outv].
+    graph, vlabel = _build_filtergraph(plan, has_audio=True, height=None)
+    assert vlabel == "outv" and "scale" not in graph
+    # 720 → scale filter present, map the scaled label.
+    graph, vlabel = _build_filtergraph(plan, has_audio=True, height=720)
+    assert "scale=-2:720" in graph and vlabel == "outs"
+
+
 if __name__ == "__main__":
     import traceback
 

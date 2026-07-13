@@ -19,3 +19,6 @@ data/videos/
 models/
 *.safetensors
 *.gguf
+
+# Web frontend uploads/outputs
+web/_work/

@@ -2,102 +2,105 @@
 
 **The Operating System for Human Creativity** — *Human Creativity. AI Operations.*
 
-Kreator amplifies real creators instead of replacing them: the human records
-the content; a team of specialized **K Agents** handles the operational work —
-understanding, editing, captioning, thumbnails, SEO, publishing, and learning —
-always grounded in the creator's own footage. Full vision and runtime spec:
-[`Kreator.md`](./Kreator.md).
+Kreator amplifies real creators instead of replacing them: the human records the
+content; Kreator handles the operational work — understanding it, cutting the
+boring parts, keeping the action, and delivering a tighter, watchable video.
+Everything runs **locally and offline, on CPU — no GPU, no API, no cost.** Full
+vision and runtime spec: [`Kreator.md`](./Kreator.md).
 
----
+## Quick start — edit a video from your browser
 
-## Where this repo is right now: the E1 slice
+The easiest way, no install on your machine: run the web app in GitHub
+Codespaces, upload a gameplay video, pick a quality, download the edited result.
+Step-by-step: [`docs/codespaces-guide.md`](./docs/codespaces-guide.md).
 
-The product spec is deliberate that the MVP's job is not to win the market — it
-is to **cheaply validate the two assumptions everything else rests on**, before
-building the full system:
+Locally it's the same app:
 
-- **E1 — moment-curation quality.** Does K Clipper rank the moments a creator
-  would actually publish? *(Highest weight — the gate for everything.)*
-- **E2 — real unit cost.** Can a video be processed for less than it's charged?
-
-This repo currently implements **exactly the slice needed to answer E1**, and
-nothing more:
-
-```
-Signal Layer  →  K Analyst (Evidence)  →  Planner / K Clipper  →  ranking.json
+```bash
+pip install -r requirements.txt -r requirements-web.txt   # + ffmpeg on your PATH
+python web/app.py            # open http://localhost:5000
 ```
 
-There is intentionally **no** K Editor, K Subtitle, K Thumbnail, K Publisher,
-provenance store, or incremental cache yet. None of them changes whether the
-ranking is good — and if E1 fails, iterating on the ranking is far cheaper than
-having built all of that first. That is the whole point of E1 as a gate.
+Upload → choose **480/720/1080p** and how much to keep → **download** the edit.
 
-### What each piece does
+## What Kreator does today
 
-| Component | Role | Status |
+Two capabilities, both built on the same signal-first pipeline.
+
+### K Editor — condense a long gameplay into its interesting parts
+Takes a long, unedited, no-commentary recording and produces a shorter edited
+video: it cuts the low-action stretches and keeps the action, coherently (it
+never cuts in the middle of an ongoing scene).
+
+```bash
+python scripts/run_edit.py --video data/videos/clip.mp4 \
+    --target-keep 0.40 --height 720 -o out/edited.mp4
+```
+
+How it decides *boring vs interesting* — all on CPU, offline:
+| Layer | What it adds | Flag |
 |---|---|---|
-| **Signal Layer** (`signal_layer/`) | Deterministic, CPU-only signals: optical-flow motion, audio energy, scene cuts → trigger events | Real; degrades gracefully if audio can't be decoded |
-| **K Analyst** (`evidence/`) | Forms an evidence window around each trigger, summarizes signals, buckets them for stability. VLM/ASR are pluggable backends | Signal-only path works today; model backends are lazy adapters |
-| **Planner / K Clipper** (`planner/`) | Deterministic ranking of candidates with per-signal rationale — *the AI classifies; the Planner decides* | Real, fully unit-tested |
-| **E1 harness** (`scripts/`) | `run_e1.py` produces a ranking; `make_truth.py` turns plain-text picks into ground truth; `eval_e1.py` scores the ranking against a human's picks | Real |
+| **Signals** | motion + audio energy → action; episode detection keeps scenes whole | (always) |
+| **Speech** | Whisper transcribes dialogue → keeps quiet story/mission talk | `--speech` |
+| **VLM** | SmolVLM *describes* sampled keyframes → keeps scenic/briefing moments | `--vlm` |
 
-## Quick start
+The VLM insight, and why it works with no GPU: run it on ~20 *sampled*
+keyframes (not every frame), and ask it to **describe** (which small local
+models do well) while a deterministic keyword rule **decides** the scene type.
+See [`docs/vlm-without-gpu.md`](./docs/vlm-without-gpu.md).
 
-```bash
-# No dependencies needed for the Planner tests or the demo:
-python tests/test_planner.py
-python tests/test_signal_layer.py
-
-# See the ranking format on a synthetic session (no video, no models):
-python scripts/run_e1.py --demo -o out/ranking.demo.json
-
-# Score a ranking against human picks:
-python scripts/eval_e1.py --ranking out/ranking.demo.json --truth data/example.truth.json
-```
-
-To run over **real gameplay**, install the deterministic core and follow
-[`data/README.md`](./data/README.md):
+### K Clipper — rank the best moments for Shorts (E1)
+The validation slice: given a video, deterministically rank the top moments a
+creator would clip. Used to test **E1 — moment-curation quality**.
 
 ```bash
-pip install -r requirements.txt
-python scripts/run_e1.py --video data/videos/gameplay_01.mp4 -o out/gameplay_01.ranking.json
+python scripts/run_e1.py --video data/videos/clip.mp4 -o out/ranking.json
+python scripts/eval_e1.py --ranking out/ranking.json --truth data/example.truth.json
 ```
 
-Add the VLM/ASR backends (`requirements-models.txt`, needs a GPU) to let the
-model confirm events and lift scores above the signal-only baseline.
+Details and the experiment setup: [`data/README.md`](./data/README.md).
 
-## Design principles carried from the spec
+## Design principles (from the spec)
 
-- **Models are commodity; infrastructure is not.** The VLM/ASR sit behind
-  narrow interfaces; the pipeline depends on the interfaces, never a model.
-- **The AI classifies; the Planner decides.** No model chooses what makes the
-  final cut. A deterministic, versioned Planner turns evidence into a ranking.
-- **Ranks, doesn't decide.** K Clipper returns top-N candidates with rationale
-  and keeps the human in the loop — the honest answer to a subjective call.
-- **Determinism for testability.** Same evidence + same weights → identical
-  ranking, so E1 is measurable and the Planner is unit-testable without a video.
+- **Models are commodity; infrastructure is not.** Every model (Whisper, VLM)
+  sits behind a narrow interface; the pipeline depends on the interface.
+- **The AI describes; the Planner decides.** No model chooses the final cut. A
+  deterministic, versioned Planner turns evidence into a keep/cut decision.
+- **Never cut mid-action.** Episodes are detected with an activity envelope +
+  hysteresis, so a brief lull doesn't chop an ongoing scene.
+- **Local, offline, free.** No GPU, no API — the hard constraint, honoured.
 
 ## Layout
 
 ```
 src/kreator/
-  types.py               # dependency-free domain types
-  signal_layer/          # deterministic signals (CPU): motion, audio, scenes
-  evidence/              # K Analyst: signals → normalized evidence; model backends
-  planner/               # K Clipper: scoring + deterministic ranking
-scripts/
-  run_e1.py              # video → ranking.json
-  make_truth.py          # plain-text picks → <video>.truth.json
-  eval_e1.py             # ranking vs human picks → agreement rate
-tests/                   # deterministic tests (no video, no models)
-data/                    # how to assemble the 10-gameplay E1 experiment
+  types.py            # dependency-free domain types
+  signal_layer/       # deterministic CPU signals: motion, audio, scenes
+  evidence/           # K Analyst: signals → normalized evidence (+ backend protocols)
+  planner/            # K Clipper: scoring + deterministic ranking (E1)
+  editor/             # K Editor: interest curve → condense → FFmpeg render
+  speech/             # dialogue transcription (faster-whisper, CPU)
+  vlm/                # local scene understanding (keyframes → SmolVLM → classify)
+web/app.py            # upload → edit → download frontend (Flask)
+scripts/              # run_edit, run_e1, eval_e1, make_truth, analyze_cache, calibrate
+tests/                # deterministic tests (no video, no models)
+docs/                 # codespaces-guide, vlm-without-gpu
 ```
 
-## Next steps (gated on E1)
+## Install options
 
-1. Run E1 on 10 real gameplays; measure agreement against a human editor.
-2. **If E1 passes:** measure E2 (VLM + ASR cost) on the same batch — the
-   expensive work already ran, so adding cost measurement is nearly free.
-3. **Only then:** build downstream agents (Editor, Subtitle, Thumbnail,
-   Publisher) and the runtime (contracts, provenance, incremental cache) on a
-   validated foundation.
+| For | Install |
+|---|---|
+| The editor + web app | `pip install -r requirements.txt -r requirements-web.txt` |
+| Dialogue (`--speech`) | already in `requirements.txt` (faster-whisper, CPU) |
+| Scene understanding (`--vlm`) | `pip install -r requirements-vlm.txt --extra-index-url https://download.pytorch.org/whl/cpu` |
+
+`ffmpeg` must be on your PATH (the Codespaces devcontainer installs it for you).
+
+## Tests
+
+```bash
+python -m pytest        # or: run each tests/test_*.py directly (no deps needed)
+```
+
+All tests are deterministic — no video, no models.
