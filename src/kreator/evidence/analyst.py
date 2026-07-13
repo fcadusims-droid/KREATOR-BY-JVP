@@ -112,7 +112,6 @@ class KAnalyst:
         features = {
             "trigger_strength": trigger.strength,
             "visual_energy": _peak(motion),
-            "visual_energy_mean": _mean(motion),
             "audio_intensity": _peak(audio),
             "hook_strength": _onset_slope(audio, motion),
             "speech_density": _mean(speech),

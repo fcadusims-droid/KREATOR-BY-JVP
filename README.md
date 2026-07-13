@@ -37,9 +37,9 @@ having built all of that first. That is the whole point of E1 as a gate.
 | Component | Role | Status |
 |---|---|---|
 | **Signal Layer** (`signal_layer/`) | Deterministic, CPU-only signals: optical-flow motion, audio energy, scene cuts → trigger events | Real; degrades gracefully if audio can't be decoded |
-| **K Analyst** (`evidence/`) | Forms an evidence window around each trigger, summarizes signals, normalizes (buckets + hysteresis). VLM/ASR are pluggable backends | Signal-only path works today; model backends are lazy adapters |
+| **K Analyst** (`evidence/`) | Forms an evidence window around each trigger, summarizes signals, buckets them for stability. VLM/ASR are pluggable backends | Signal-only path works today; model backends are lazy adapters |
 | **Planner / K Clipper** (`planner/`) | Deterministic ranking of candidates with per-signal rationale — *the AI classifies; the Planner decides* | Real, fully unit-tested |
-| **E1 harness** (`scripts/`) | `run_e1.py` produces a ranking; `eval_e1.py` scores it against a human editor's picks | Real |
+| **E1 harness** (`scripts/`) | `run_e1.py` produces a ranking; `make_truth.py` turns plain-text picks into ground truth; `eval_e1.py` scores the ranking against a human's picks | Real |
 
 ## Quick start
 
@@ -87,6 +87,7 @@ src/kreator/
   planner/               # K Clipper: scoring + deterministic ranking
 scripts/
   run_e1.py              # video → ranking.json
+  make_truth.py          # plain-text picks → <video>.truth.json
   eval_e1.py             # ranking vs human picks → agreement rate
 tests/                   # deterministic tests (no video, no models)
 data/                    # how to assemble the 10-gameplay E1 experiment

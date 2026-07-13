@@ -1,10 +1,18 @@
-"""Evidence dataclass + the two normalization primitives that keep the
-Planner's decisions stable across probabilistic re-runs.
+"""Evidence dataclass + the two normalization primitives from the runtime
+spec's "buckets + hysteresis" (§4-RT), which keep the Planner's decisions
+stable under probabilistic inference.
 
-`bucket` and `hysteretic` are the mechanism the runtime spec (§4-RT) calls
-"buckets + hysteresis": continuous scores are reduced to stable ranges so an
-irrelevant wobble in a model's confidence between two runs does not flip the
-plan. They are pure functions — trivially testable, no dependencies.
+Both are pure functions with no dependencies. Their roles differ by scope:
+
+- ``bucket`` acts *within a single run*: it quantizes each score so float
+  noise (0.8149 vs 0.8151) cannot reorder the ranking. This is applied on
+  every feature the Analyst produces today.
+- ``hysteretic`` acts *across runs*: it holds a value unless a new one clears
+  a band, so a signal hovering at a threshold doesn't flip between two
+  analyses. It needs a *previous* value to compare against, so it activates
+  only once there is re-run/persisted state to feed it — which the single-pass
+  MVP does not yet have. It is provided and tested here as the primitive that
+  layer will use, not wired into the one-shot path.
 """
 
 from __future__ import annotations
@@ -71,6 +79,3 @@ class Evidence:
         }
         blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
         return hashlib.sha256(blob).hexdigest()[:16]
-
-    def signal(self, name: str, default: float = 0.0) -> float:
-        return float(self.signals.get(name, default))

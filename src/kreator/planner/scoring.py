@@ -37,9 +37,6 @@ class ScoringProfile:
         }
     )
 
-    def weight(self, signal: str) -> float:
-        return self.weights.get(signal, 0.0)
-
 
 def _feature_vector(ev: Evidence) -> dict[str, float]:
     """Assemble the scored features from evidence signals + optional labels."""
