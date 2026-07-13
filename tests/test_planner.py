@@ -47,6 +47,20 @@ def test_ties_break_by_earliest_moment():
     assert ranking[0].span.start == 10.0  # tie → earlier moment wins
 
 
+def test_overlapping_candidates_are_suppressed():
+    # Two near-identical windows (same moment, adjacent triggers) must collapse
+    # to one candidate — the higher-scored survives, the overlap is dropped.
+    strong = _ev(100.0, {"visual_energy": 0.95, "audio_intensity": 0.9})
+    dup = _ev(105.0, {"visual_energy": 0.9, "audio_intensity": 0.9})  # overlaps strong
+    far = _ev(300.0, {"visual_energy": 0.6, "audio_intensity": 0.6})
+    ranking = KClipper().rank([strong, dup, far], top_n=5)
+    starts = [c.span.start for c in ranking]
+    assert 100.0 in starts
+    assert 300.0 in starts
+    assert 105.0 not in starts        # suppressed as a duplicate of 100.0
+    assert len(ranking) == 2
+
+
 def test_vlm_event_confidence_lifts_score():
     base = _ev(40.0, {"visual_energy": 0.5})
     labelled = _ev(40.0, {"visual_energy": 0.5}, labels={"event": "explosion", "conf": 0.9})

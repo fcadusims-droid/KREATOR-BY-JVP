@@ -16,6 +16,14 @@ from ..types import Timespan, format_tc
 from .scoring import ScoreBreakdown, ScoringProfile, score_evidence
 
 
+def _iou(a: Timespan, b: Timespan) -> float:
+    """Intersection-over-union of two spans — used to suppress candidates that
+    describe the same moment."""
+    inter = a.intersection(b)
+    union = a.duration + b.duration - inter
+    return inter / union if union > 0 else 0.0
+
+
 # Human-readable labels for the rationale sentence.
 _SIGNAL_PHRASES = {
     "visual_energy": "high visual energy",
@@ -60,7 +68,13 @@ class KClipper:
     def __init__(self, profile: ScoringProfile | None = None) -> None:
         self.profile = profile or ScoringProfile()
 
-    def rank(self, evidences: list[Evidence], top_n: int = 5) -> list[Candidate]:
+    def rank(
+        self,
+        evidences: list[Evidence],
+        top_n: int = 5,
+        *,
+        suppress_iou: float = 0.3,
+    ) -> list[Candidate]:
         scored: list[tuple[ScoreBreakdown, Evidence]] = [
             (score_evidence(ev, self.profile), ev) for ev in evidences
         ]
@@ -75,18 +89,27 @@ class KClipper:
             )
         )
 
+        # Non-maximum suppression: the same moment often fires several adjacent
+        # triggers, producing overlapping windows. Keep the highest-scored of
+        # each cluster and drop any later candidate that overlaps an already-
+        # accepted one by more than ``suppress_iou`` — so the top-N are N
+        # *distinct* moments, not N views of the same one.
         candidates: list[Candidate] = []
-        for i, (breakdown, ev) in enumerate(scored[:top_n], start=1):
+        for breakdown, ev in scored:
+            if any(_iou(ev.span, c.span) > suppress_iou for c in candidates):
+                continue
             candidates.append(
                 Candidate(
                     span=ev.span,
                     score=breakdown.total,
-                    rank=i,
+                    rank=len(candidates) + 1,
                     breakdown=breakdown,
                     evidence=ev,
                     rationale=self._explain(breakdown, ev),
                 )
             )
+            if len(candidates) >= top_n:
+                break
         return candidates
 
     def _explain(self, breakdown: ScoreBreakdown, ev: Evidence) -> str:
