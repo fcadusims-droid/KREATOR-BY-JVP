@@ -67,6 +67,7 @@ class Condenser:
         min_interest: float = 0.05,
         episode_seconds: float = 12.0,
         exit_ratio: float = 0.55,
+        speech_floor: float = 0.5,
     ) -> None:
         # Keep roughly the most-active ``target_keep`` fraction of the video.
         self.target_keep = target_keep
@@ -87,13 +88,31 @@ class Condenser:
         # Hysteresis: once inside an episode, stay until the envelope falls to
         # ``exit_ratio`` of the entry threshold — so a dip doesn't cut the scene.
         self.exit_ratio = exit_ratio
+        # Interest floor applied wherever speech is present — enough to survive
+        # the keep threshold, so quiet dialogue is not cut as "boring".
+        self.speech_floor = speech_floor
 
-    def plan(self, bundle: SignalBundle) -> EditPlan:
+    def plan(
+        self,
+        bundle: SignalBundle,
+        *,
+        speech: list[float] | None = None,
+    ) -> EditPlan:
         times, interest = interest_curve(bundle)
         duration = bundle.duration
         if not times:
             return EditPlan([], duration, 0.0)
         step = (times[1] - times[0]) if len(times) > 1 else 0.5
+
+        # Speech rescue: where there is dialogue, lift interest to at least
+        # ``speech_floor`` even if the scene is quiet and still — so a story
+        # beat isn't cut just because nothing is exploding. Applied before the
+        # envelope, so a talky stretch forms its own coherent episode.
+        if speech:
+            interest = [
+                max(v, self.speech_floor) if (i < len(speech) and speech[i] > 0) else v
+                for i, v in enumerate(interest)
+            ]
 
         # The envelope is the sustained-activity signal that keeps an ongoing
         # sequence coherent across brief cue drops.
