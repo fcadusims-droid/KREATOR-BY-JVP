@@ -19,7 +19,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-models = ["torch>=2.1", "transformers>=4.49", "accelerate>=0.30", "whisperx>=3.1"]
+# Local, offline VLM for K Editor --vlm (CPU). Install torch/torchvision from
+# the CPU index to avoid CUDA wheels.
+vlm = ["torch>=2.1", "torchvision>=0.16", "transformers>=4.49", "num2words>=0.5", "pillow>=10.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

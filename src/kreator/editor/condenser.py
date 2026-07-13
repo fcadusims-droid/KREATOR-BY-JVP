@@ -97,6 +97,7 @@ class Condenser:
         bundle: SignalBundle,
         *,
         speech: list[float] | None = None,
+        visual_keep: list[float] | None = None,
     ) -> EditPlan:
         times, interest = interest_curve(bundle)
         duration = bundle.duration
@@ -104,15 +105,18 @@ class Condenser:
             return EditPlan([], duration, 0.0)
         step = (times[1] - times[0]) if len(times) > 1 else 0.5
 
-        # Speech rescue: where there is dialogue, lift interest to at least
-        # ``speech_floor`` even if the scene is quiet and still — so a story
-        # beat isn't cut just because nothing is exploding. Applied before the
-        # envelope, so a talky stretch forms its own coherent episode.
-        if speech:
-            interest = [
-                max(v, self.speech_floor) if (i < len(speech) and speech[i] > 0) else v
-                for i, v in enumerate(interest)
-            ]
+        # Rescue signals lift interest to a floor wherever something the signal
+        # proxy can't value is present — so a quiet-but-meaningful stretch isn't
+        # cut just because nothing is exploding. Applied before the envelope, so
+        # a rescued stretch forms its own coherent episode.
+        #   - speech: dialogue is happening (from ASR)
+        #   - visual_keep: a VLM called this frame scenic / dialogue / action
+        for series in (speech, visual_keep):
+            if series:
+                interest = [
+                    max(v, self.speech_floor) if (i < len(series) and series[i] > 0) else v
+                    for i, v in enumerate(interest)
+                ]
 
         # The envelope is the sustained-activity signal that keeps an ongoing
         # sequence coherent across brief cue drops.
