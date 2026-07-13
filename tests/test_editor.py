@@ -43,6 +43,27 @@ def test_condenser_keeps_action_cuts_boredom():
         assert min(abs(c - 30.0), abs(c - 90.0)) < 20.0
 
 
+def test_episode_not_cut_at_brief_lull():
+    # The reported bug: an action sequence (~22..46) with a brief lull around
+    # t=35 (the screaming stops, but the chase is still on). The immediate
+    # signal dips there, yet the episode must stay ONE segment — not be chopped
+    # at the lull — because the surrounding window is still active.
+    bundle = synthetic_bundle(
+        duration=90.0,
+        peaks=[
+            {"time": 22.0, "motion": 0.9, "audio": 0.85, "width": 3.0},
+            {"time": 27.0, "motion": 0.9, "audio": 0.85, "width": 3.0},
+            {"time": 31.0, "motion": 0.9, "audio": 0.85, "width": 3.0},
+            # lull ~33..39 (no peak) — immediate interest drops here
+            {"time": 41.0, "motion": 0.9, "audio": 0.85, "width": 3.0},
+            {"time": 45.0, "motion": 0.9, "audio": 0.85, "width": 3.0},
+        ],
+    )
+    plan = Condenser(target_keep=0.5).plan(bundle)
+    spanning = [s for s in plan.segments if s.span.start <= 33 and s.span.end >= 39]
+    assert spanning, "the episode was chopped at the brief lull mid-action"
+
+
 def test_condenser_respects_min_keep():
     plan = Condenser(target_keep=0.35, min_keep_seconds=2.0).plan(
         _bundle_with_action_islands()

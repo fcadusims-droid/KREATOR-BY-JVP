@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..types import SignalBundle, Timespan, format_tc
-from .interest import interest_curve, percentile
+from .interest import envelope, interest_curve
 
 
 @dataclass(frozen=True)
@@ -65,6 +65,8 @@ class Condenser:
         min_cut_seconds: float = 3.0,
         min_keep_seconds: float = 1.5,
         min_interest: float = 0.05,
+        episode_seconds: float = 12.0,
+        exit_ratio: float = 0.55,
     ) -> None:
         # Keep roughly the most-active ``target_keep`` fraction of the video.
         self.target_keep = target_keep
@@ -78,46 +80,111 @@ class Condenser:
         # what the percentile says. Guards the case where most of the video is
         # near-zero interest and the percentile threshold collapses to ~0.
         self.min_interest = min_interest
+        # Window over which "are we in an action *sequence*" is judged. This is
+        # what stops a brief lull (the screaming stops, but the chase goes on)
+        # from ending an episode mid-action.
+        self.episode_seconds = episode_seconds
+        # Hysteresis: once inside an episode, stay until the envelope falls to
+        # ``exit_ratio`` of the entry threshold — so a dip doesn't cut the scene.
+        self.exit_ratio = exit_ratio
 
     def plan(self, bundle: SignalBundle) -> EditPlan:
         times, interest = interest_curve(bundle)
         duration = bundle.duration
         if not times:
             return EditPlan([], duration, 0.0)
+        step = (times[1] - times[0]) if len(times) > 1 else 0.5
 
-        # Adaptive threshold: the top ``target_keep`` fraction of interest, but
-        # never below the absolute interest floor.
-        threshold = max(percentile(interest, 1.0 - self.target_keep), self.min_interest)
+        # The envelope is the sustained-activity signal that keeps an ongoing
+        # sequence coherent across brief cue drops.
+        env = envelope(times, interest, self.episode_seconds)
 
-        raw = self._runs_above(times, interest, threshold, duration)
-        merged = self._merge_close(raw, self.min_cut_seconds)
-        padded = self._pad_and_remerge(merged, duration)
-        kept = [(s, e) for s, e in padded if e - s >= self.min_keep_seconds]
+        # Solve for the entry threshold that actually hits ``target_keep``. The
+        # envelope of a uniformly-active video is flat, so a fixed percentile
+        # would keep far too much; searching the threshold enforces the target
+        # regardless of the envelope's shape — while episodes stay coherent.
+        enter = self._solve_threshold(times, env, duration, step)
+        kept = self._segments_for(times, env, enter, duration, step)
 
         segments = [
             KeepSegment(Timespan(s, e), self._mean_interest(times, interest, s, e))
             for s, e in kept
         ]
-        return EditPlan(segments, duration, threshold)
+        return EditPlan(segments, duration, enter)
+
+    def _segments_for(
+        self, times: list[float], env: list[float], enter: float,
+        duration: float, step: float,
+    ) -> list[tuple[float, float]]:
+        """Full keep/cut pipeline for a given entry threshold: episodes (with
+        hysteresis) → merge short cuts → pad → drop too-short keeps."""
+        episodes = self._episodes(times, env, enter, enter * self.exit_ratio,
+                                  duration, step)
+        merged = self._merge_close(episodes, self.min_cut_seconds)
+        padded = self._pad_and_remerge(merged, duration)
+        return [(s, e) for s, e in padded if e - s >= self.min_keep_seconds]
+
+    def _solve_threshold(
+        self, times: list[float], env: list[float], duration: float, step: float,
+    ) -> float:
+        """Binary-search the entry threshold so the kept fraction ≈ target_keep.
+
+        Kept fraction decreases monotonically as the threshold rises, so a
+        bisection converges quickly. Bounded below by ``min_interest`` so a
+        low target never starts keeping genuinely dead footage."""
+        lo, hi = self.min_interest, max(env) if env else self.min_interest
+        if hi <= lo or duration <= 0:
+            return max(lo, hi)
+
+        def kept_ratio(thr: float) -> float:
+            segs = self._segments_for(times, env, thr, duration, step)
+            return sum(e - s for s, e in segs) / duration
+
+        best = lo
+        for _ in range(24):
+            mid = (lo + hi) / 2.0
+            r = kept_ratio(mid)
+            best = mid
+            if r > self.target_keep:
+                lo = mid   # keeping too much → raise threshold
+            else:
+                hi = mid   # keeping too little → lower threshold
+        return best
 
     @staticmethod
-    def _runs_above(
-        times: list[float], interest: list[float], thr: float, duration: float
+    def _episodes(
+        times: list[float], env: list[float], enter: float, exit_thr: float,
+        duration: float, step: float,
     ) -> list[tuple[float, float]]:
-        """Contiguous runs where interest is at or above the threshold."""
+        """Schmitt-trigger episode detection: enter when the envelope rises past
+        ``enter``, stay in until it falls below ``exit_thr``. The gap between the
+        two thresholds is what keeps a scene whole through a brief lull."""
         runs: list[tuple[float, float]] = []
         start: float | None = None
-        step = (times[1] - times[0]) if len(times) > 1 else 0.5
         for i, t in enumerate(times):
-            above = interest[i] >= thr
-            if above and start is None:
+            if start is None and env[i] >= enter:
                 start = t
-            elif not above and start is not None:
+            elif start is not None and env[i] < exit_thr:
                 runs.append((start, t))
                 start = None
         if start is not None:
             runs.append((start, min(duration, times[-1] + step)))
         return runs
+
+    @staticmethod
+    def _union(runs: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        """Merge a set of possibly-overlapping intervals into disjoint ones."""
+        if not runs:
+            return []
+        ordered = sorted(runs)
+        out = [ordered[0]]
+        for s, e in ordered[1:]:
+            ps, pe = out[-1]
+            if s <= pe:
+                out[-1] = (ps, max(pe, e))
+            else:
+                out.append((s, e))
+        return out
 
     @staticmethod
     def _merge_close(
