@@ -12,7 +12,10 @@ where you assemble the material to answer it.
 
 2. **A human editor's picks for each video** — the ground truth. For every
    video, an editor watches it and marks the moments they would turn into a
-   Short. Save one JSON per video using the format below.
+   Short. **Do this before running the system** — an independent human judgment
+   is exactly what gives E1 its validity. Mark **3–5 moments per video**: the
+   system returns a top-5 by default (`--top-n 5`), so marking many more than 5
+   just inflates misses that E1 isn't trying to measure.
 
 ## Ground-truth format
 
@@ -30,6 +33,28 @@ One file per video, named `<video>.truth.json`:
 
 `start` / `end` are seconds. List the moments the editor chose, best first if
 you want to compare rank order later. See `example.truth.json`.
+
+### You don't have to write that JSON by hand
+
+Use `scripts/make_truth.py`. Note each moment in a plain `.txt`, one
+`mm:ss-mm:ss` per line (`#` comments and blank lines ignored):
+
+```
+# gameplay_01 — my picks, best first
+00:58-01:06
+02:09-02:17
+```
+
+Then convert it:
+
+```bash
+python scripts/make_truth.py gameplay_01.mp4 picks_gameplay_01.txt
+```
+
+It writes the truth file to **both** `data/labels/<video>.truth.json` and
+`out/<video>.truth.json`. That second location matters: the `--batch` evaluator
+looks for truth files **next to the rankings in `out/`**, not in `data/labels/`.
+Writing both means either workflow below just works.
 
 ## Running it
 
