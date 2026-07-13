@@ -64,20 +64,55 @@ def select_keyframes(
     candidates += [Keyframe(t, "episode")
                    for t in _coverage(bundle.duration, every=max(min_gap * 4, 30.0))]
 
-    return _dedup(candidates, min_gap, max_frames)
+    return _select_balanced(candidates, min_gap, max_frames)
 
 
-_PRIORITY = {"interest_peak": 0, "episode": 1, "scenic_candidate": 2, "scene_cut": 3}
+# Share of the budget reserved per reason. Scenic candidates matter as much as
+# peaks: they are the low-action moments the signal proxy can't classify and
+# the whole reason to invoke a VLM — so they must not be crowded out by the
+# (typically far more numerous) interest peaks.
+_QUOTA = {"scenic_candidate": 0.40, "interest_peak": 0.40,
+          "scene_cut": 0.10, "episode": 0.10}
+_FILL_ORDER = ["scenic_candidate", "interest_peak", "scene_cut", "episode"]
 
 
-def _dedup(frames: list[Keyframe], min_gap: float, cap: int) -> list[Keyframe]:
-    ordered = sorted(frames, key=lambda k: (_PRIORITY.get(k.reason, 9), k.time))
+def _select_balanced(frames: list[Keyframe], min_gap: float, cap: int) -> list[Keyframe]:
+    """Balanced selection: fill a per-reason quota first (so scenic candidates
+    are never crowded out), then use any leftover budget for the rest."""
+    by_reason: dict[str, list[Keyframe]] = {}
+    for kf in frames:
+        by_reason.setdefault(kf.reason, []).append(kf)
+    for group in by_reason.values():
+        group.sort(key=lambda k: k.time)
+
     kept: list[Keyframe] = []
-    for kf in ordered:
+
+    def _try_add(kf: Keyframe) -> bool:
         if all(abs(kf.time - k.time) >= min_gap for k in kept):
             kept.append(kf)
-        if len(kept) >= cap:
-            break
+            return True
+        return False
+
+    # Pass 1 — honour each reason's quota.
+    for reason in _FILL_ORDER:
+        limit = round(cap * _QUOTA.get(reason, 0.0))
+        added = 0
+        for kf in by_reason.get(reason, []):
+            if added >= limit or len(kept) >= cap:
+                break
+            if _try_add(kf):
+                added += 1
+
+    # Pass 2 — fill remaining budget from everything left, scenic first.
+    if len(kept) < cap:
+        pool = sorted(frames, key=lambda k: (_FILL_ORDER.index(k.reason)
+                      if k.reason in _FILL_ORDER else 9, k.time))
+        for kf in pool:
+            if len(kept) >= cap:
+                break
+            if kf not in kept:
+                _try_add(kf)
+
     return sorted(kept, key=lambda k: k.time)
 
 

@@ -66,7 +66,7 @@ class Condenser:
         min_keep_seconds: float = 1.5,
         min_interest: float = 0.05,
         episode_seconds: float = 12.0,
-        exit_ratio: float = 0.55,
+        exit_ratio: float = 0.65,  # calibrated over 4 GTA videos (docs/calibration)
         speech_floor: float = 0.5,
     ) -> None:
         # Keep roughly the most-active ``target_keep`` fraction of the video.

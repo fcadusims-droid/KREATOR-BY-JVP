@@ -30,6 +30,9 @@ from kreator.types import format_tc  # noqa: E402
 def main() -> int:
     ap = argparse.ArgumentParser(description="Kreator K Editor: condense a video.")
     ap.add_argument("--video", required=True, help="path to the source video")
+    ap.add_argument("--bundle", default=None,
+                    help="cached bundle JSON (from analyze_cache.py) — skips "
+                         "re-analysis and reuses its baked-in speech")
     ap.add_argument("--target-keep", type=float, default=0.35,
                     help="fraction of the most-active video to keep (0..1)")
     ap.add_argument("--pad", type=float, default=1.0,
@@ -48,12 +51,18 @@ def main() -> int:
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
-    print(f"Analyzing {args.video} …")
-    bundle = analyze_video(args.video, verbose=args.verbose)
+    if args.bundle:
+        from kreator.types import SignalBundle
+        print(f"Loading cached bundle {args.bundle} …")
+        bundle = SignalBundle.from_dict(json.loads(Path(args.bundle).read_text()))
+    else:
+        print(f"Analyzing {args.video} …")
+        bundle = analyze_video(args.video, verbose=args.verbose)
     has_audio = any(a > 0.0 for a in bundle.audio)
 
-    speech = None
-    if args.speech:
+    # A cached bundle already has speech presence baked into bundle.speech.
+    speech = bundle.speech if (args.bundle and any(bundle.speech)) else None
+    if args.speech and not args.bundle:
         print("Transcribing dialogue (Whisper, CPU)…")
         segments = transcribe(args.video, model_size=args.whisper_model,
                               verbose=args.verbose)
