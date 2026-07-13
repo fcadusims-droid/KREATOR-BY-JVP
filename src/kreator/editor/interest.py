@@ -70,6 +70,24 @@ def interest_curve(
     return times, _moving_average(raw, radius)
 
 
+def envelope(
+    times: list[float], interest: list[float], seconds: float
+) -> list[float]:
+    """Long-window moving average of the interest curve — the "are we inside an
+    action *sequence*?" signal.
+
+    A single scream stopping, or a half-second lull between shots, barely moves
+    the envelope, because the surrounding window is still full of motion and
+    sound (running, sirens, driving). This is what lets the condenser keep an
+    ongoing episode whole instead of chopping it the instant one cue drops.
+    """
+    if not times or len(times) < 2:
+        return list(interest)
+    step = times[1] - times[0]
+    radius = max(1, int(round((seconds / step) / 2))) if step > 0 else 1
+    return _moving_average(interest, radius)
+
+
 def percentile(xs: list[float], q: float) -> float:
     """Value at quantile ``q`` (0..1) via nearest-rank on a sorted copy."""
     if not xs:
