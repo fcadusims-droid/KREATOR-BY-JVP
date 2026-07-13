@@ -94,3 +94,33 @@ class SignalBundle:
 
     def events_of(self, kind: str) -> list[Event]:
         return [e for e in self.events if e.kind == kind]
+
+    def to_dict(self) -> dict:
+        """Serialize for caching — the Signal Layer is the expensive step, so
+        caching its output lets parameter tuning skip re-decoding the video."""
+        return {
+            "duration": self.duration,
+            "fps": self.fps,
+            "events": [
+                {"time": e.time, "kind": e.kind, "strength": e.strength}
+                for e in self.events
+            ],
+            "times": self.times,
+            "motion": self.motion,
+            "audio": self.audio,
+            "speech": self.speech,
+            "scene_cuts": self.scene_cuts,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "SignalBundle":
+        return cls(
+            duration=d["duration"],
+            fps=d["fps"],
+            events=[Event(e["time"], e["kind"], e["strength"]) for e in d.get("events", [])],
+            times=d.get("times", []),
+            motion=d.get("motion", []),
+            audio=d.get("audio", []),
+            speech=d.get("speech", []),
+            scene_cuts=d.get("scene_cuts", []),
+        )
