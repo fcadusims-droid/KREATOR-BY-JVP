@@ -88,6 +88,24 @@ def test_condenser_merges_short_cuts():
     assert spanning, "expected the short gap to be bridged into one segment"
 
 
+def test_speech_rescues_quiet_dialogue():
+    # A calm video with one small action burst at t=10 and a quiet, talky
+    # stretch at 38..52. Without speech the talk is cut as "boring"; with speech
+    # presence it is rescued and kept.
+    bundle = synthetic_bundle(
+        duration=60.0,
+        peaks=[{"time": 10.0, "motion": 0.9, "audio": 0.8, "width": 3.0}],
+    )
+    speech = [1.0 if 38.0 <= t <= 52.0 else 0.0 for t in bundle.times]
+
+    at45_without = any(s.span.start <= 45 <= s.span.end
+                       for s in Condenser(target_keep=0.5).plan(bundle).segments)
+    at45_with = any(s.span.start <= 45 <= s.span.end
+                    for s in Condenser(target_keep=0.5).plan(bundle, speech=speech).segments)
+    assert not at45_without, "quiet dialogue should be cut without speech info"
+    assert at45_with, "speech presence should rescue the quiet dialogue"
+
+
 def test_percentile_bounds():
     xs = [0.1, 0.2, 0.3, 0.4, 0.5]
     assert percentile(xs, 0.0) == 0.1

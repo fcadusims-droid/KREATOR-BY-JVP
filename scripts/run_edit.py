@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from kreator.editor import Condenser, render_segments  # noqa: E402
 from kreator.signal_layer import analyze_video  # noqa: E402
+from kreator.speech import presence_series, transcribe  # noqa: E402
 from kreator.types import format_tc  # noqa: E402
 
 
@@ -35,6 +36,10 @@ def main() -> int:
                     help="context seconds padded around each kept region")
     ap.add_argument("--min-cut", type=float, default=3.0,
                     help="never cut a boring gap shorter than this (seconds)")
+    ap.add_argument("--speech", action="store_true",
+                    help="transcribe dialogue (CPU Whisper) and keep talky moments")
+    ap.add_argument("--whisper-model", default="base",
+                    help="faster-whisper model size (tiny/base/small)")
     ap.add_argument("-o", "--out", default="out/edited.mp4",
                     help="edited video output path")
     ap.add_argument("--plan-out", default=None, help="edit-plan JSON output path")
@@ -47,12 +52,25 @@ def main() -> int:
     bundle = analyze_video(args.video, verbose=args.verbose)
     has_audio = any(a > 0.0 for a in bundle.audio)
 
+    speech = None
+    if args.speech:
+        print("Transcribing dialogue (Whisper, CPU)…")
+        segments = transcribe(args.video, model_size=args.whisper_model,
+                              verbose=args.verbose)
+        speech = presence_series(segments, bundle.times)
+        talk_time = sum(s.end - s.start for s in segments)
+        print(f"  {len(segments)} speech segments, {format_tc(talk_time)} of dialogue")
+        transcript_out = str(Path(args.out).with_suffix(".transcript.json"))
+        Path(transcript_out).write_text(
+            json.dumps([s.to_dict() for s in segments], indent=2), encoding="utf-8")
+        print(f"  wrote transcript: {transcript_out}")
+
     condenser = Condenser(
         target_keep=args.target_keep,
         pad_seconds=args.pad,
         min_cut_seconds=args.min_cut,
     )
-    plan = condenser.plan(bundle)
+    plan = condenser.plan(bundle, speech=speech)
 
     print(f"\nOriginal: {format_tc(plan.original_duration)}  →  "
           f"Edited: {format_tc(plan.kept_duration)}  "
