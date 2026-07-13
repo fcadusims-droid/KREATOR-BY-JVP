@@ -20,7 +20,8 @@ each as a span in seconds — optionally ranked by the editor:
     }
 
 Usage:
-    python scripts/eval_e1.py --ranking out/ranking.json --truth labels/gameplay_01.json
+    python scripts/eval_e1.py --ranking out/gameplay_01.ranking.json \
+                              --truth   data/labels/gameplay_01.truth.json
     python scripts/eval_e1.py --batch out/           # aggregate over many pairs
 """
 

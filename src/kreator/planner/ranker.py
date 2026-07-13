@@ -9,7 +9,7 @@ measures against a human editor's choices.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from ..evidence.types import Evidence
 from ..types import Timespan, format_tc

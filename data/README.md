@@ -84,8 +84,22 @@ human editor chose.
   the rest on top of it.
 - **Agreement is low → E1 fails, and that is the cheap, valuable answer.**
   Iterate on the Planner's `ScoringProfile` weights and the Signal Layer's
-  triggers *before* building anything downstream — exactly the retrabalho E1
+  triggers *before* building anything downstream — exactly the rework E1
   exists to prevent.
+
+For every human pick the ranking *missed*, the report also prints
+`closest candidate overlap IoU` — the best overlap any candidate reached even
+though it fell short of the match threshold. That number tells you *which kind*
+of failure it was, and they need different fixes:
+
+- **Near-miss** (IoU close to the 0.3 threshold, e.g. 0.2–0.29): the ranking
+  found the right region but the clip boundaries were off — an offset/dedup
+  **calibration** issue.
+- **Total miss** (IoU near 0): no candidate came near the event at all — the
+  ranking picked the *wrong moment*, which tuning offsets will not fix.
+
+This is what lets a low-agreement result point at the actual cause instead of
+guessing.
 
 Add the VLM/ASR backends (`requirements-models.txt`) and re-run to measure how
 much model labels improve agreement over the signal-only baseline.
