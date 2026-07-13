@@ -45,7 +45,13 @@ def _center_in(candidate: dict, pick: dict) -> bool:
 
 def evaluate(ranking: dict, truth: dict, *, iou_threshold: float = 0.3) -> dict:
     """A human pick counts as 'found' if some system candidate overlaps it by
-    IoU ≥ threshold, or contains its center. Agreement = found / total picks."""
+    IoU ≥ threshold, or contains its center. Agreement = found / total picks.
+
+    For misses, ``closest_iou`` reports the best overlap achieved by *any*
+    candidate even when it fell short of the threshold — this is what lets
+    you tell a near-miss (likely an offset/boundary calibration issue) apart
+    from a total miss (the ranking found nothing near the event at all).
+    """
     candidates = ranking.get("candidates", [])
     picks = truth.get("picks", [])
     if not picks:
@@ -53,18 +59,21 @@ def evaluate(ranking: dict, truth: dict, *, iou_threshold: float = 0.3) -> dict:
 
     matches = []
     for pick in picks:
-        best_iou = 0.0
+        best_match_iou = 0.0
+        best_overlap_iou = 0.0
         best_rank = None
         for cand in candidates:
             iou = _iou(cand, pick)
-            if (iou >= iou_threshold or _center_in(cand, pick)) and iou >= best_iou:
-                best_iou = max(iou, best_iou)
+            best_overlap_iou = max(iou, best_overlap_iou)
+            if (iou >= iou_threshold or _center_in(cand, pick)) and iou >= best_match_iou:
+                best_match_iou = max(iou, best_match_iou)
                 best_rank = cand["rank"]
         matches.append({
             "pick": [pick["start"], pick["end"]],
             "found": best_rank is not None,
             "matched_rank": best_rank,
-            "iou": round(best_iou, 3),
+            "iou": round(best_match_iou, 3),
+            "closest_iou": round(best_overlap_iou, 3),
         })
 
     found = sum(1 for m in matches if m["found"])
@@ -83,9 +92,11 @@ def _print_report(report: dict) -> None:
     print(f"\n{report['video']}: {report['found']}/{report['picks']} human picks "
           f"found in ranking → agreement={agree} [{verdict}]")
     for m in report.get("matches", []):
-        mark = "✓" if m["found"] else "✗"
-        rank = f"rank #{m['matched_rank']}" if m["found"] else "not ranked"
-        print(f"  {mark} pick {m['pick']}  ({rank}, IoU={m['iou']})")
+        if m["found"]:
+            rank = f"rank #{m['matched_rank']}"
+            print(f"  ✓ pick {m['pick']}  ({rank}, IoU={m['iou']})")
+        else:
+            print(f"  ✗ pick {m['pick']}  (not ranked; closest candidate overlap IoU={m.get('closest_iou', 0.0)})")
 
 
 def main() -> int:
