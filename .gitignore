@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# E1 run outputs (rankings are regenerated; don't commit them)
+out/
+*.ranking.json
+
+# Media — never commit raw gameplay or model weights
+data/videos/
+*.mp4
+*.mov
+*.mkv
+*.wav
+models/
+*.safetensors
+*.gguf
