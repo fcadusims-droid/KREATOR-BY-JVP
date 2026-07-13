@@ -51,6 +51,9 @@ def main() -> int:
                          "scenic/dialogue/action scenes (slow, offline, no GPU)")
     ap.add_argument("--vlm-frames", type=int, default=20,
                     help="how many keyframes the VLM looks at")
+    ap.add_argument("--height", type=int, default=None,
+                    choices=[480, 720, 1080],
+                    help="output resolution height (480/720/1080); default keeps source")
     ap.add_argument("-o", "--out", default="out/edited.mp4",
                     help="edited video output path")
     ap.add_argument("--plan-out", default=None, help="edit-plan JSON output path")
@@ -124,7 +127,7 @@ def main() -> int:
 
     print("Rendering edited video (FFmpeg re-encode of kept parts)…")
     out = render_segments(args.video, plan, args.out, has_audio=has_audio,
-                          verbose=args.verbose)
+                          height=args.height, verbose=args.verbose)
     print(f"Wrote edited video: {out}")
     return 0
 

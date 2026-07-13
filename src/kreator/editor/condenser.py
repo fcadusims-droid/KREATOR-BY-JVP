@@ -67,7 +67,7 @@ class Condenser:
         min_interest: float = 0.05,
         episode_seconds: float = 12.0,
         exit_ratio: float = 0.65,  # calibrated over 4 GTA videos (docs/calibration)
-        speech_floor: float = 0.5,
+        rescue_floor: float = 0.5,
     ) -> None:
         # Keep roughly the most-active ``target_keep`` fraction of the video.
         self.target_keep = target_keep
@@ -88,9 +88,10 @@ class Condenser:
         # Hysteresis: once inside an episode, stay until the envelope falls to
         # ``exit_ratio`` of the entry threshold — so a dip doesn't cut the scene.
         self.exit_ratio = exit_ratio
-        # Interest floor applied wherever speech is present — enough to survive
-        # the keep threshold, so quiet dialogue is not cut as "boring".
-        self.speech_floor = speech_floor
+        # Interest floor applied wherever a rescue signal (speech or a VLM
+        # scene label) is present — enough to survive the keep threshold, so a
+        # quiet-but-meaningful stretch is not cut as "boring".
+        self.rescue_floor = rescue_floor
 
     def plan(
         self,
@@ -114,7 +115,7 @@ class Condenser:
         for series in (speech, visual_keep):
             if series:
                 interest = [
-                    max(v, self.speech_floor) if (i < len(series) and series[i] > 0) else v
+                    max(v, self.rescue_floor) if (i < len(series) and series[i] > 0) else v
                     for i, v in enumerate(interest)
                 ]
 

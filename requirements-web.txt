@@ -1,0 +1,2 @@
+# Kreator web frontend.
+flask>=3.0

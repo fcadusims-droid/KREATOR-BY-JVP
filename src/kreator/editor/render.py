@@ -32,7 +32,12 @@ def _ffmpeg_bin() -> str:
         return "ffmpeg"
 
 
-def _build_filtergraph(plan: EditPlan, has_audio: bool) -> str:
+def _build_filtergraph(
+    plan: EditPlan, has_audio: bool, height: int | None = None
+) -> tuple[str, str]:
+    """Return ``(filtergraph, video_label)``. When ``height`` is set, the
+    concatenated video is scaled to that height (width kept even, aspect
+    preserved) — this is how the 480/720/1080p export options are applied."""
     parts: list[str] = []
     labels: list[str] = []
     for i, seg in enumerate(plan.segments):
@@ -47,10 +52,18 @@ def _build_filtergraph(plan: EditPlan, has_audio: bool) -> str:
         labels.append(f"[v{i}][a{i}]" if has_audio else f"[v{i}]")
     n = len(plan.segments)
     if has_audio:
-        parts.append(f"{''.join(labels)}concat=n={n}:v=1:a=1[outv][outa]")
+        parts.append(f"{''.join(labels)}concat=n={n}:v=1:a=1[outv][outa];")
     else:
-        parts.append(f"{''.join(labels)}concat=n={n}:v=1:a=0[outv]")
-    return "".join(parts)
+        parts.append(f"{''.join(labels)}concat=n={n}:v=1:a=0[outv];")
+
+    vlabel = "outv"
+    if height:
+        # -2 keeps width even and preserves aspect ratio.
+        parts.append(f"[outv]scale=-2:{int(height)}[outs];")
+        vlabel = "outs"
+
+    graph = "".join(parts).rstrip(";")
+    return graph, vlabel
 
 
 def render_segments(
@@ -59,19 +72,22 @@ def render_segments(
     out_path: str,
     *,
     has_audio: bool = True,
+    height: int | None = None,
     crf: int = 23,
     preset: str = "veryfast",
     verbose: bool = False,
 ) -> str:
     """Render ``plan``'s kept segments from ``video_path`` into ``out_path``.
 
-    Returns the output path. Raises if the plan is empty or FFmpeg fails.
+    ``height`` scales the output (e.g. 480/720/1080); ``None`` keeps the source
+    resolution. Returns the output path. Raises if the plan is empty or ffmpeg
+    fails.
     """
     if not plan.segments:
         raise ValueError("edit plan has no segments to render")
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    graph = _build_filtergraph(plan, has_audio)
+    graph, vlabel = _build_filtergraph(plan, has_audio, height)
 
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
         fh.write(graph)
@@ -80,9 +96,10 @@ def render_segments(
     cmd = [
         _ffmpeg_bin(), "-y", "-i", video_path,
         "-filter_complex_script", script,
-        "-map", "[outv]",
+        "-map", f"[{vlabel}]",
         *(["-map", "[outa]"] if has_audio else []),
         "-c:v", "libx264", "-crf", str(crf), "-preset", preset,
+        "-movflags", "+faststart",
         *(["-c:a", "aac", "-b:a", "128k"] if has_audio else []),
         out_path,
     ]

@@ -101,5 +101,6 @@ of failure it was, and they need different fixes:
 This is what lets a low-agreement result point at the actual cause instead of
 guessing.
 
-Add the VLM/ASR backends (`requirements-models.txt`) and re-run to measure how
-much model labels improve agreement over the signal-only baseline.
+The ranking here is signal-only. K Clipper's evidence layer can optionally be
+enriched with the same local models K Editor uses (`kreator.speech`,
+`kreator.vlm`) via the backend Protocols in `evidence/backends.py`.
