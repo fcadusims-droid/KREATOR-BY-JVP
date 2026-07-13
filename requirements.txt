@@ -1,0 +1,9 @@
+# Kreator — E1 slice, deterministic core (CPU-only).
+# These cover the Signal Layer over a real video. The Planner and its tests
+# need none of them — they run on the standard library alone.
+
+numpy>=1.24
+opencv-python-headless>=4.8    # motion / optical-flow signal
+scenedetect>=0.6.3             # scene-cut signal (PySceneDetect, BSD-3)
+librosa>=0.10                  # audio energy signal (optional at runtime)
+soundfile>=0.12                # audio decoding backend for librosa
