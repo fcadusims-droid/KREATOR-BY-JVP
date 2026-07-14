@@ -21,7 +21,12 @@ pip install -r requirements.txt -r requirements-web.txt   # + ffmpeg on your PAT
 python web/app.py            # open http://localhost:5000
 ```
 
-Upload → choose **480/720/1080p** and how much to keep → **download** the edit.
+Upload a gameplay video → Kreator **understands what game it is and edits it on
+its own** (no settings) → **download** the finished edit.
+
+*(The CLI, `scripts/run_edit.py`, still exposes the individual knobs —
+`--target-keep`, `--height {480,720,1080}`, `--speech`, `--vlm` — for manual
+control; the web app is the fully autonomous path.)*
 
 ## What Kreator does today
 

@@ -38,22 +38,22 @@ click the 🌐 globe icon.)
 
 ## 3. Edit a video
 
-The Kreator page opens in a new tab:
+The Kreator page opens in a new tab. There are **no settings** — Kreator decides
+everything on its own:
 
 1. **Choose your gameplay video** (mp4/mov/mkv).
-2. **Output quality** — pick 480p, 720p, or 1080p.
-3. **How much to keep** — Balanced (~40%) is a good default; Aggressive makes a
-   shorter, punchier cut.
-4. **Understanding** (optional, slower):
-   - *Keep dialogue moments* — transcribes speech so mission/story talk isn't
-     cut. Adds a few minutes.
-   - *Understand scenes (VLM)* — keeps scenic/briefing moments the motion+audio
-     pass would drop. Much slower (~15 min).
-5. Click **Edit my video →**.
+2. Click **Edit my video →**.
 
-A progress page shows each stage live (analyzing → [transcribing] →
-[understanding scenes] → rendering). When it's done, click **⬇ Download edited
-video**.
+Kreator then, by itself: analyzes the footage → recognizes the game/genre from
+what it sees → picks an editing style that fits → cuts the boring parts, keeping
+the action and dialogue → renders the result.
+
+A progress page shows each stage live (this takes several minutes — the
+scene-understanding step is the slow part). When it's done it shows what Kreator
+recognized and a **⬇ Download edited video** button.
+
+*(Prefer manual control over quality/how-much-to-keep? Use the command line —
+see the bottom of this guide.)*
 
 ## 4. When you're finished
 
