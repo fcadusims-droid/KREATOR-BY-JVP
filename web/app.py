@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Kreator web frontend — upload a gameplay video, get an edited one back.
+"""Kreator web frontend — autonomous edit.
 
-A small, self-contained Flask app: upload a video, pick the output quality
-(480/720/1080p) and how much understanding to apply, and Kreator edits it
-(cuts the boring parts, keeps the action, optionally keeps dialogue and
-VLM-identified scenes) and hands back a finished MP4 to download.
-
-Everything runs locally and offline — no GPU, no API. Start it with:
+Upload a gameplay video and Kreator does the rest with **no options**: it looks
+at the footage, works out what kind of game it is, picks an editing style for
+that genre, and hands back a finished MP4 to download. Everything runs locally
+and offline — no GPU, no API.
 
     python web/app.py            # then open the forwarded port (5000)
 
-Processing is slow (especially the VLM), so each upload becomes a background
-job with a live status page that polls until the download is ready.
+Processing is slow (the scene-understanding VLM especially), so each upload is a
+background job with a live status page that polls until the download is ready.
 """
 
 from __future__ import annotations
@@ -28,12 +26,9 @@ from flask import (Flask, jsonify, redirect, render_template_string,
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from kreator.editor import Condenser, render_segments  # noqa: E402
-from kreator.signal_layer import analyze_video  # noqa: E402
-from kreator.speech import presence_series, transcribe  # noqa: E402
+from kreator.director import autonomous_edit  # noqa: E402
 from kreator.types import format_tc  # noqa: E402
-from kreator.vlm import (LocalVLMBackend, label_keyframes,  # noqa: E402
-                         select_keyframes, visual_keep_series)
+from kreator.vlm.backends import LocalVLMBackend  # noqa: E402
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024  # 4 GB uploads
@@ -42,56 +37,37 @@ WORK = ROOT / "web" / "_work"
 WORK.mkdir(parents=True, exist_ok=True)
 
 JOBS: dict[str, dict] = {}
-_VLM = None  # loaded once, on first use
+_VLM = None  # the VLM model, loaded once and reused across jobs
 
 
-def _process(job_id: str, video_path: Path, opts: dict) -> None:
+def _process(job_id: str, video_path: Path) -> None:
     job = JOBS[job_id]
     try:
-        job["stage"] = "Analyzing video (motion, audio, scenes)…"
-        bundle = analyze_video(str(video_path))
-        has_audio = any(a > 0.0 for a in bundle.audio)
-
-        speech = None
-        if opts["speech"] and has_audio:
-            job["stage"] = "Transcribing dialogue (Whisper)…"
-            segs = transcribe(str(video_path))
-            speech = presence_series(segs, bundle.times)
-            job["dialogue_segments"] = len(segs)
-
-        visual = None
-        if opts["vlm"]:
-            job["stage"] = "Understanding scenes with the local VLM (slow)…"
-            global _VLM
-            if _VLM is None:
-                _VLM = LocalVLMBackend()
-            kfs = select_keyframes(bundle, max_frames=opts["vlm_frames"])
-            labels = label_keyframes(str(video_path), kfs, _VLM)
-            visual = visual_keep_series(labels, bundle.times)
-            job["scenes"] = [lab.to_dict() for lab in labels]
-
-        job["stage"] = "Planning the edit…"
-        plan = Condenser(target_keep=opts["target_keep"]).plan(
-            bundle, speech=speech, visual_keep=visual)
-        job["original"] = format_tc(plan.original_duration)
-        job["edited"] = format_tc(plan.kept_duration)
-        job["keep_pct"] = round(plan.keep_ratio * 100)
-        job["segments"] = len(plan.segments)
-        if not plan.segments:
-            raise RuntimeError("nothing worth keeping was found — try a higher Keep %")
-
-        job["stage"] = f"Rendering the edited video at {opts['height']}p…"
+        global _VLM
+        if _VLM is None:
+            _VLM = LocalVLMBackend()
         out_path = WORK / f"{job_id}.edited.mp4"
-        render_segments(str(video_path), plan, str(out_path),
-                        has_audio=has_audio, height=opts["height"])
 
-        job["out"] = str(out_path)
+        def progress(stage: str) -> None:
+            job["stage"] = stage
+
+        result = autonomous_edit(str(video_path), str(out_path),
+                                 progress=progress, vlm_backend=_VLM)
+        job["result"] = {
+            "label": result["label"],
+            "preset_note": result["preset_note"],
+            "original": format_tc(result["original_duration"]),
+            "edited": format_tc(result["kept_duration"]),
+            "keep_pct": round(result["keep_ratio"] * 100),
+            "segments": result["segments"],
+            "scenes": len(result["scenes"]),
+        }
+        job["out"] = result["out"]
         job["stage"] = "done"
-    except Exception as exc:  # surface any failure to the status page
+    except Exception as exc:
         job["stage"] = "error"
         job["error"] = str(exc)
     finally:
-        # The uploaded source is no longer needed once processing is over.
         video_path.unlink(missing_ok=True)
 
 
@@ -100,89 +76,67 @@ INDEX_HTML = """<!doctype html><html><head><meta charset="utf-8">
 <title>Kreator — edit your gameplay</title>
 <style>
  :root{color-scheme:dark}
- body{font-family:system-ui,sans-serif;background:#0e0f13;color:#e7e9ee;
-      margin:0;padding:2rem 1rem;display:flex;justify-content:center}
- .card{width:100%;max-width:560px}
- h1{font-size:1.7rem;margin:.2rem 0}
- .tag{color:#8b93a7;font-size:.9rem;margin-bottom:1.6rem}
- form{background:#171922;border:1px solid #262a36;border-radius:14px;padding:1.4rem}
- label{display:block;font-weight:600;margin:1.1rem 0 .4rem}
- .hint{font-weight:400;color:#8b93a7;font-size:.82rem}
- input[type=file],select{width:100%;padding:.6rem;background:#0e0f13;
-      color:#e7e9ee;border:1px solid #2b3040;border-radius:8px}
- .row{display:flex;gap:.6rem;align-items:flex-start;margin:.7rem 0}
- .row input{margin-top:.25rem}
- .seg{display:flex;gap:.5rem;margin-top:.3rem}
- .seg button{flex:1;padding:.55rem;border:1px solid #2b3040;background:#0e0f13;
-      color:#e7e9ee;border-radius:8px;cursor:pointer}
- .seg button.on{background:#3b82f6;border-color:#3b82f6;color:#fff}
- button.go{margin-top:1.5rem;width:100%;padding:.8rem;font-size:1rem;font-weight:700;
-      background:#3b82f6;color:#fff;border:0;border-radius:9px;cursor:pointer}
- button.go:hover{background:#2f6fe0}
+ body{font-family:system-ui,sans-serif;background:#0e0f13;color:#e7e9ee;margin:0;
+      padding:2.5rem 1rem;display:flex;justify-content:center}
+ .card{width:100%;max-width:520px;text-align:center}
+ h1{font-size:1.9rem;margin:.2rem 0}
+ .tag{color:#8b93a7;margin:.6rem 0 2rem;line-height:1.5}
+ form{background:#171922;border:1px solid #262a36;border-radius:14px;padding:1.8rem}
+ input[type=file]{width:100%;padding:.9rem;background:#0e0f13;color:#e7e9ee;
+      border:1px dashed #394054;border-radius:10px;margin-bottom:1.2rem}
+ button{width:100%;padding:.95rem;font-size:1.05rem;font-weight:800;background:#3b82f6;
+      color:#fff;border:0;border-radius:10px;cursor:pointer}
+ button:hover{background:#2f6fe0}
+ .steps{margin-top:1.4rem;color:#6b7280;font-size:.85rem;line-height:1.7;text-align:left}
+ .steps b{color:#9aa3b2}
 </style></head><body><div class="card">
 <h1>🎬 Kreator</h1>
-<div class="tag">Upload a gameplay video. Kreator cuts the boring parts and keeps
-the action — locally, offline, on CPU.</div>
+<div class="tag">Upload your gameplay. Kreator watches it, understands what game
+it is, and edits it on its own — cutting the boring parts, keeping the action.
+No settings. Local &amp; offline.</div>
 <form method="post" action="/upload" enctype="multipart/form-data">
- <label>Your gameplay video <span class="hint">(mp4 / mov / mkv)</span></label>
  <input type="file" name="video" accept="video/*" required>
-
- <label>Output quality</label>
- <div class="seg" id="qseg">
-   <button type="button" data-v="480" class="on">480p</button>
-   <button type="button" data-v="720">720p</button>
-   <button type="button" data-v="1080">1080p</button>
+ <button type="submit">Edit my video →</button>
+ <div class="steps">
+   <b>What it does, on its own:</b><br>
+   1. Analyzes motion, audio and scenes<br>
+   2. Recognizes the game/genre from what it sees<br>
+   3. Picks an editing style that fits<br>
+   4. Cuts the boring parts, keeps the action &amp; dialogue<br>
+   5. Hands you the finished video to download
  </div>
- <input type="hidden" name="height" id="height" value="480">
-
- <label>How much to keep <span class="hint">(lower = shorter, punchier)</span></label>
- <select name="target_keep">
-   <option value="0.25">Aggressive — keep ~25%</option>
-   <option value="0.40" selected>Balanced — keep ~40%</option>
-   <option value="0.60">Light — keep ~60%</option>
- </select>
-
- <label>Understanding</label>
- <div class="row"><input type="checkbox" name="speech" id="speech">
-   <label for="speech" style="margin:0;font-weight:400">Keep dialogue moments
-   <span class="hint">— transcribes speech, +a few minutes</span></label></div>
- <div class="row"><input type="checkbox" name="vlm" id="vlm">
-   <label for="vlm" style="margin:0;font-weight:400">Understand scenes (VLM)
-   <span class="hint">— keeps scenic/briefing moments, much slower (~15 min)</span></label></div>
-
- <button class="go" type="submit">Edit my video →</button>
-</form></div>
-<script>
- const seg=document.getElementById('qseg'), h=document.getElementById('height');
- seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{
-   seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
-   b.classList.add('on'); h.value=b.dataset.v;});
-</script></body></html>"""
+</form>
+<div class="tag" style="margin-top:1.4rem;font-size:.8rem">Kreator only uses
+your own footage — it never generates or adds anything from outside.</div>
+</div></body></html>"""
 
 
 JOB_HTML = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kreator — processing</title>
+<title>Kreator — working…</title>
 <style>
  :root{color-scheme:dark}
  body{font-family:system-ui,sans-serif;background:#0e0f13;color:#e7e9ee;margin:0;
-      padding:2rem 1rem;display:flex;justify-content:center}
- .card{width:100%;max-width:560px;background:#171922;border:1px solid #262a36;
-      border-radius:14px;padding:1.6rem}
+      padding:2.5rem 1rem;display:flex;justify-content:center}
+ .card{width:100%;max-width:520px;background:#171922;border:1px solid #262a36;
+      border-radius:14px;padding:1.8rem}
  h1{font-size:1.4rem;margin:.2rem 0 1.2rem}
- .stage{font-size:1.05rem;margin:1rem 0}
+ .stage{font-size:1.08rem;margin:1rem 0}
  .spin{width:34px;height:34px;border:4px solid #2b3040;border-top-color:#3b82f6;
       border-radius:50%;animation:s 1s linear infinite;margin:1rem 0}
  @keyframes s{to{transform:rotate(360deg)}}
  .stat{color:#8b93a7;font-size:.92rem;margin:.3rem 0}
- a.dl{display:inline-block;margin-top:1.2rem;padding:.8rem 1.4rem;background:#22c55e;
-      color:#06240f;font-weight:800;border-radius:9px;text-decoration:none}
+ .note{color:#9aa3b2;font-size:.88rem;margin:.4rem 0 0}
+ a.dl{display:inline-block;margin-top:1.3rem;padding:.85rem 1.5rem;background:#22c55e;
+      color:#06240f;font-weight:800;border-radius:10px;text-decoration:none}
  a.back{display:inline-block;margin-top:1rem;color:#8b93a7}
  .err{color:#f87171}
- code{background:#0e0f13;padding:.1rem .35rem;border-radius:5px}
+ .warn{color:#6b7280;font-size:.8rem;margin-top:1rem}
 </style></head><body><div class="card">
 <h1>🎬 Editing your video…</h1>
 <div id="body"><div class="spin"></div><div class="stage">Starting…</div></div>
+<div class="warn">Understanding the scenes takes several minutes — this page
+updates itself, you can leave it open.</div>
 <a class="back" href="/">← edit another</a></div>
 <script>
  const id="{{job_id}}";
@@ -190,11 +144,12 @@ JOB_HTML = """<!doctype html><html><head><meta charset="utf-8">
    const r=await fetch(`/job/${id}/status`); const j=await r.json();
    const b=document.getElementById('body');
    if(j.stage==='done'){
+     const s=j.result||{};
      b.innerHTML=`<div class="stage">✅ Done!</div>
-       <div class="stat">Original ${j.original} → edited ${j.edited}
-       (${j.keep_pct}% kept, ${j.segments} segments)</div>
-       ${j.dialogue_segments!=null?`<div class="stat">${j.dialogue_segments} dialogue segments kept</div>`:''}
-       ${j.scenes!=null?`<div class="stat">${j.scenes.length} scenes analyzed by the VLM</div>`:''}
+       <div class="note">Kreator saw: <b>${s.label||''}</b></div>
+       <div class="note">${s.preset_note||''}</div>
+       <div class="stat" style="margin-top:.7rem">Original ${s.original} → edited ${s.edited}
+       (${s.keep_pct}% kept, ${s.segments} segments, ${s.scenes} scenes analyzed)</div>
        <a class="dl" href="/job/${id}/download">⬇ Download edited video</a>`;
      return;
    }
@@ -202,8 +157,7 @@ JOB_HTML = """<!doctype html><html><head><meta charset="utf-8">
      b.innerHTML=`<div class="stage err">⚠ Something went wrong</div>
        <div class="stat">${j.error||''}</div>`; return;
    }
-   b.innerHTML=`<div class="spin"></div><div class="stage">${j.stage}</div>
-     ${j.original?`<div class="stat">Original length: ${j.original}</div>`:''}`;
+   b.innerHTML=`<div class="spin"></div><div class="stage">${j.stage}</div>`;
    setTimeout(poll,1500);
  }
  poll();
@@ -221,19 +175,10 @@ def upload():
     if not f or not f.filename:
         return redirect(url_for("index"))
     job_id = uuid.uuid4().hex[:12]
-    suffix = Path(f.filename).suffix or ".mp4"
-    src = WORK / f"{job_id}{suffix}"
+    src = WORK / f"{job_id}{Path(f.filename).suffix or '.mp4'}"
     f.save(src)
-
-    opts = {
-        "height": int(request.form.get("height", 480)),
-        "target_keep": float(request.form.get("target_keep", 0.40)),
-        "speech": request.form.get("speech") == "on",
-        "vlm": request.form.get("vlm") == "on",
-        "vlm_frames": 20,
-    }
     JOBS[job_id] = {"stage": "queued", "created": time.time()}
-    threading.Thread(target=_process, args=(job_id, src, opts), daemon=True).start()
+    threading.Thread(target=_process, args=(job_id, src), daemon=True).start()
     return redirect(url_for("job_page", job_id=job_id))
 
 
