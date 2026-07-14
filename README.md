@@ -54,6 +54,15 @@ keyframes (not every frame), and ask it to **describe** (which small local
 models do well) while a deterministic keyword rule **decides** the scene type.
 See [`docs/vlm-without-gpu.md`](./docs/vlm-without-gpu.md).
 
+The edit is then produced as a small **operations program** (a cut spine plus
+overlays) run by an FFmpeg executor — currently `cut` + `subtitle` (the
+creator's own transcribed dialogue, burned in and remapped to the edited
+timeline). Zoom, transitions, and library assets (music/b-roll) are defined in
+the same DSL for later. The reasoning — and why this is preferred over training
+an editing model now — is in [`docs/training-vs-dsl.md`](./docs/training-vs-dsl.md).
+Kreator is **not a generative AI**: every pixel and sound is the creator's own
+footage ([`docs/not-generative.md`](./docs/not-generative.md)).
+
 ### K Clipper — rank the best moments for Shorts (E1)
 The validation slice: given a video, deterministically rank the top moments a
 creator would clip. Used to test **E1 — moment-curation quality**.

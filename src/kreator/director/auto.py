@@ -10,10 +10,10 @@ cut and reassembled. (See ``docs/not-generative.md``.)
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Callable
 
-from ..editor import Condenser, render_segments
+from ..dsl import compose_program, execute_program
+from ..editor import Condenser
 from ..signal_layer import analyze_video
 from ..speech import presence_series, transcribe
 from ..vlm import label_keyframes, select_keyframes, visual_keep_series
@@ -49,6 +49,7 @@ def autonomous_edit(
     preset = EDITING_PRESETS[profile.preset]
     progress(f"Recognized: {profile.label} → editing as '{profile.preset}'.")
 
+    segs = []
     speech = None
     if preset["keep_dialogue"] and has_audio:
         progress("Transcribing dialogue so story/mission talk is kept…")
@@ -63,9 +64,18 @@ def autonomous_edit(
     if not plan.segments:
         raise RuntimeError("nothing clearly worth keeping was found")
 
+    # Compose the edit as an operations program: the cut spine plus subtitles
+    # (the creator's own spoken words) where the preset keeps dialogue — which
+    # also helps a viewer follow a mission, the one real editing complaint we
+    # found in the wild.
+    program = compose_program(
+        plan, transcript=segs,
+        subtitles=bool(preset["keep_dialogue"] and segs),
+        height=height,
+    )
+
     progress(f"Rendering the edited video at {height}p…")
-    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    render_segments(video_path, plan, out_path, has_audio=has_audio, height=height)
+    execute_program(video_path, program, out_path, has_audio=has_audio)
 
     return {
         "genre": profile.genre,
@@ -77,6 +87,7 @@ def autonomous_edit(
         "kept_duration": plan.kept_duration,
         "keep_ratio": plan.keep_ratio,
         "segments": len(plan.segments),
+        "subtitles": len(program.subtitles),
         "scenes": [lab.to_dict() for lab in labels],
         "out": out_path,
     }
