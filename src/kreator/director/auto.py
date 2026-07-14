@@ -64,14 +64,27 @@ def autonomous_edit(
     if not plan.segments:
         raise RuntimeError("nothing clearly worth keeping was found")
 
-    # Compose the edit as an operations program: the cut spine plus subtitles
-    # (the creator's own spoken words) where the preset keeps dialogue — which
-    # also helps a viewer follow a mission, the one real editing complaint we
-    # found in the wild.
+    # The Director's decision log — the "why" carried into the plan.
+    use_subs = bool(preset["keep_dialogue"] and segs)
+    rationale = [
+        f"Recognized {profile.label} → '{profile.preset}' preset: {preset['note']}.",
+        f"Kept {plan.keep_ratio:.0%} of the video across {len(plan.segments)} "
+        f"coherent segments (never cutting mid-action).",
+    ]
+    if use_subs:
+        rationale.append("Burned the spoken dialogue as subtitles so the "
+                         "story/mission stays followable.")
+    if preset["zoom"]:
+        rationale.append("Added subtle punch-ins on the most intense moments.")
+
+    # Compose the edit as an operations program: cut spine + subtitles (the
+    # creator's own spoken words) + zoom punch-ins, each with its justification.
     program = compose_program(
         plan, transcript=segs,
-        subtitles=bool(preset["keep_dialogue"] and segs),
+        subtitles=use_subs,
+        zoom=bool(preset["zoom"]),
         height=height,
+        rationale=rationale,
     )
 
     progress(f"Rendering the edited video at {height}p…")
@@ -88,6 +101,9 @@ def autonomous_edit(
         "keep_ratio": plan.keep_ratio,
         "segments": len(plan.segments),
         "subtitles": len(program.subtitles),
+        "zooms": len(program.zooms),
+        "rationale": program.rationale,
+        "program": program.to_dict(),
         "scenes": [lab.to_dict() for lab in labels],
         "out": out_path,
     }

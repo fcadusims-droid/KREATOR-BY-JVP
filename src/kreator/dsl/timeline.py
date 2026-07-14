@@ -27,7 +27,8 @@ def source_to_edited(source_t: float, cuts: list[Cut]) -> float | None:
 
 
 def subtitles_from_transcript(
-    speech_segments: list, cuts: list[Cut], *, min_len: float = 0.4
+    speech_segments: list, cuts: list[Cut], *, min_len: float = 0.4,
+    reason: str = "",
 ) -> list[Subtitle]:
     """Turn source-time transcript segments into edited-time subtitles.
 
@@ -55,5 +56,5 @@ def subtitles_from_transcript(
         if edited_start is None or edited_end is None:
             continue
         edited_end = max(edited_end, edited_start + min_len)
-        subs.append(Subtitle(edited_start, edited_end, text))
+        subs.append(Subtitle(edited_start, edited_end, text, reason=reason))
     return subs

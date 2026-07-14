@@ -61,6 +61,8 @@ def _process(job_id: str, video_path: Path) -> None:
             "keep_pct": round(result["keep_ratio"] * 100),
             "segments": result["segments"],
             "subtitles": result.get("subtitles", 0),
+            "zooms": result.get("zooms", 0),
+            "rationale": result.get("rationale", []),
             "scenes": len(result["scenes"]),
         }
         job["out"] = result["out"]
@@ -128,6 +130,7 @@ JOB_HTML = """<!doctype html><html><head><meta charset="utf-8">
  @keyframes s{to{transform:rotate(360deg)}}
  .stat{color:#8b93a7;font-size:.92rem;margin:.3rem 0}
  .note{color:#9aa3b2;font-size:.88rem;margin:.4rem 0 0}
+ ul.why{text-align:left;color:#9aa3b2;font-size:.86rem;margin:.6rem 0;padding-left:1.1rem;line-height:1.5}
  a.dl{display:inline-block;margin-top:1.3rem;padding:.85rem 1.5rem;background:#22c55e;
       color:#06240f;font-weight:800;border-radius:10px;text-decoration:none}
  a.back{display:inline-block;margin-top:1rem;color:#8b93a7}
@@ -146,12 +149,14 @@ updates itself, you can leave it open.</div>
    const b=document.getElementById('body');
    if(j.stage==='done'){
      const s=j.result||{};
+     const why=(s.rationale||[]).map(r=>`<li>${r}</li>`).join('');
      b.innerHTML=`<div class="stage">✅ Done!</div>
        <div class="note">Kreator saw: <b>${s.label||''}</b></div>
-       <div class="note">${s.preset_note||''}</div>
+       ${why?`<ul class="why">${why}</ul>`:''}
        <div class="stat" style="margin-top:.7rem">Original ${s.original} → edited ${s.edited}
        (${s.keep_pct}% kept, ${s.segments} segments, ${s.scenes} scenes analyzed)</div>
        ${s.subtitles?`<div class="stat">${s.subtitles} subtitles burned from the dialogue</div>`:''}
+       ${s.zooms?`<div class="stat">${s.zooms} punch-in zoom(s) on the action</div>`:''}
        <a class="dl" href="/job/${id}/download">⬇ Download edited video</a>`;
      return;
    }

@@ -18,6 +18,7 @@ class Cut:
     """A source span to keep — the spine of the edit."""
     source_start: float
     source_end: float
+    reason: str = ""   # why this span was kept (the justification)
 
     @property
     def duration(self) -> float:
@@ -25,7 +26,7 @@ class Cut:
 
     def to_dict(self) -> dict:
         return {"type": "cut", "source_start": round(self.source_start, 3),
-                "source_end": round(self.source_end, 3)}
+                "source_end": round(self.source_end, 3), "reason": self.reason}
 
 
 @dataclass(frozen=True)
@@ -34,10 +35,11 @@ class Subtitle:
     start: float
     end: float
     text: str
+    reason: str = ""
 
     def to_dict(self) -> dict:
         return {"type": "subtitle", "start": round(self.start, 3),
-                "end": round(self.end, 3), "text": self.text}
+                "end": round(self.end, 3), "text": self.text, "reason": self.reason}
 
 
 @dataclass(frozen=True)
@@ -91,7 +93,12 @@ class Broll:
 
 @dataclass
 class EditProgram:
-    """A full edit as data: the cut spine plus overlay operations."""
+    """A full edit as data: the cut spine plus overlay operations.
+
+    This is the *intermediate representation* the Director produces and the
+    executor consumes — timeline + operations + justifications. The AI never
+    edits; it plans this, and the deterministic executor runs it.
+    """
     cuts: list[Cut] = field(default_factory=list)
     subtitles: list[Subtitle] = field(default_factory=list)
     zooms: list[Zoom] = field(default_factory=list)
@@ -99,6 +106,9 @@ class EditProgram:
     music: list[Music] = field(default_factory=list)
     broll: list[Broll] = field(default_factory=list)
     height: int | None = None
+    # High-level editorial decisions, in plain language — the "why" behind the
+    # plan (e.g. "recognized GTA heist → mission preset → kept more").
+    rationale: list[str] = field(default_factory=list)
 
     @property
     def edited_duration(self) -> float:
@@ -108,6 +118,7 @@ class EditProgram:
         return {
             "height": self.height,
             "edited_duration": round(self.edited_duration, 2),
+            "rationale": self.rationale,
             "operations": (
                 [c.to_dict() for c in self.cuts]
                 + [s.to_dict() for s in self.subtitles]

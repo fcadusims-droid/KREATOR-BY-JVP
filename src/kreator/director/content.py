@@ -45,19 +45,23 @@ class ContentProfile:
                 "tags": self.tags, "preset": self.preset}
 
 
-# Editing presets the Director can choose. Params map onto Condenser + render.
+# Editing presets the Director can choose. Params map onto Condenser + DSL.
 EDITING_PRESETS: dict[str, dict] = {
     # Keep more, preserve dialogue — grounded in the "you cut too much, can't
-    # follow the mission" feedback. Don't montage a heist.
+    # follow the mission" feedback. Don't montage a heist; no flashy zooms.
     "mission": {"target_keep": 0.55, "keep_dialogue": True, "min_cut": 5.0,
+                "zoom": False,
                 "note": "keeps more and preserves briefings so the mission still reads"},
-    # Open-world action: balanced condense, keep action coherent.
+    # Open-world action: balanced condense, keep action coherent, punch in on peaks.
     "action": {"target_keep": 0.40, "keep_dialogue": True, "min_cut": 4.0,
-               "note": "balanced — keeps the action, trims the travel"},
-    # Punchy: mostly combat, tighten hard.
+               "zoom": True,
+               "note": "balanced — keeps the action, trims the travel, punches in on peaks"},
+    # Punchy: mostly combat, tighten hard, zoom on the action.
     "punchy": {"target_keep": 0.30, "keep_dialogue": False, "min_cut": 3.0,
-               "note": "tight, action-forward cut"},
+               "zoom": True,
+               "note": "tight, action-forward cut with punch-ins"},
     "balanced": {"target_keep": 0.40, "keep_dialogue": True, "min_cut": 4.0,
+                 "zoom": True,
                  "note": "sensible default"},
 }
 
