@@ -60,6 +60,7 @@ def _process(job_id: str, video_path: Path) -> None:
             "edited": format_tc(result["kept_duration"]),
             "keep_pct": round(result["keep_ratio"] * 100),
             "segments": result["segments"],
+            "subtitles": result.get("subtitles", 0),
             "scenes": len(result["scenes"]),
         }
         job["out"] = result["out"]
@@ -150,6 +151,7 @@ updates itself, you can leave it open.</div>
        <div class="note">${s.preset_note||''}</div>
        <div class="stat" style="margin-top:.7rem">Original ${s.original} → edited ${s.edited}
        (${s.keep_pct}% kept, ${s.segments} segments, ${s.scenes} scenes analyzed)</div>
+       ${s.subtitles?`<div class="stat">${s.subtitles} subtitles burned from the dialogue</div>`:''}
        <a class="dl" href="/job/${id}/download">⬇ Download edited video</a>`;
      return;
    }
