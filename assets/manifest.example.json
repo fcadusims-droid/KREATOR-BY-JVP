@@ -1,0 +1,4 @@
+{
+  "war-theme.mp3": { "kind": "music", "moods": ["tense", "war", "action"] },
+  "calm-ambient.mp3": { "kind": "music", "moods": ["suspense", "calm", "scenic"] }
+}

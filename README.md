@@ -55,13 +55,20 @@ models do well) while a deterministic keyword rule **decides** the scene type.
 See [`docs/vlm-without-gpu.md`](./docs/vlm-without-gpu.md).
 
 The edit is then produced as a small **operations program** (a cut spine plus
-overlays) run by an FFmpeg executor — currently `cut` + `subtitle` (the
-creator's own transcribed dialogue, burned in and remapped to the edited
-timeline). Zoom, transitions, and library assets (music/b-roll) are defined in
-the same DSL for later. The reasoning — and why this is preferred over training
-an editing model now — is in [`docs/training-vs-dsl.md`](./docs/training-vs-dsl.md).
-Kreator is **not a generative AI**: every pixel and sound is the creator's own
-footage ([`docs/not-generative.md`](./docs/not-generative.md)).
+overlays, each carrying its justification) run by an FFmpeg executor. Operations
+today: `cut`, `subtitle` (the creator's own transcribed dialogue, remapped to
+the edited timeline), `zoom` (punch-in on the action), `transition` (crossfade),
+and `music` (a background track from the **K Library** of free-to-use assets,
+mixed under the audio). A **K Validator** step checks the render matches the plan
+before it's handed over. `b-roll`/`sfx` are defined for later.
+
+The reasoning — the model *plans* an intermediate representation (timeline +
+operations + justifications) and a deterministic executor runs it, rather than a
+model "editing" video, and why this is preferred over training an editing model
+now — is in [`docs/training-vs-dsl.md`](./docs/training-vs-dsl.md). Kreator is
+**not a generative AI**: every pixel and sound is the creator's own footage, and
+the only added assets are real free-to-use library files
+([`docs/not-generative.md`](./docs/not-generative.md)).
 
 ### K Clipper — rank the best moments for Shorts (E1)
 The validation slice: given a video, deterministically rank the top moments a

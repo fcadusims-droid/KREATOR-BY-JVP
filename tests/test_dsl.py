@@ -78,6 +78,49 @@ def test_compose_justifies_cuts_and_adds_zoom():
     assert all("reason" in op for op in ops if op["type"] == "cut")
 
 
+def test_transitions_added_between_cuts_and_build_xfade():
+    from kreator.editor.condenser import EditPlan, KeepSegment
+    from kreator.types import Timespan
+    from kreator.dsl import compose_program
+    from kreator.dsl.execute import _build_filtergraph
+
+    segs = [KeepSegment(Timespan(0.0, 10.0), 0.6),
+            KeepSegment(Timespan(20.0, 30.0), 0.5),
+            KeepSegment(Timespan(40.0, 50.0), 0.4)]
+    prog = compose_program(EditPlan(segs, 60.0, 0.5), transitions=True)
+    assert len(prog.transitions) == 2               # one per boundary
+    graph, _v, _a = _build_filtergraph(prog, has_audio=True, srt_path=None)
+    assert "xfade" in graph and "acrossfade" in graph and "fps=30" in graph
+
+
+def test_music_mix_in_filtergraph():
+    from kreator.editor.condenser import EditPlan, KeepSegment
+    from kreator.types import Timespan
+    from kreator.dsl import compose_program
+    from kreator.dsl.execute import _build_filtergraph
+    from kreator.dsl.program import Music
+
+    plan = EditPlan([KeepSegment(Timespan(0.0, 10.0), 0.6)], 20.0, 0.5)
+    prog = compose_program(plan)
+    prog.music.append(Music("track.mp3", 0.0, 10.0, 0.2))
+    graph, _v, alabel = _build_filtergraph(prog, has_audio=True, srt_path=None)
+    assert "amix" in graph and "volume=0.2" in graph and alabel == "amx"
+
+
+def test_transitions_suppressed_when_subtitles_present():
+    # Crossfades shorten the timeline and would drift subtitle timing, so they
+    # are not combined.
+    from kreator.editor.condenser import EditPlan, KeepSegment
+    from kreator.types import Timespan
+    from kreator.dsl import compose_program
+    from kreator.speech import SpeechSegment
+
+    segs = [KeepSegment(Timespan(0.0, 10.0), 0.6), KeepSegment(Timespan(20.0, 30.0), 0.5)]
+    prog = compose_program(EditPlan(segs, 40.0, 0.5), transitions=True,
+                           subtitles=True, transcript=[SpeechSegment(1.0, 3.0, "hi")])
+    assert prog.subtitles and not prog.transitions
+
+
 def test_zoom_scale_for_overlap():
     from kreator.dsl.execute import _zoom_scale_for
     from kreator.dsl.program import EditProgram, Zoom

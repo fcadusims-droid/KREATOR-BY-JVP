@@ -8,12 +8,13 @@ in here as the executor learns to run them.
 
 from __future__ import annotations
 
-from .program import Cut, EditProgram, Zoom
+from .program import Cut, EditProgram, Transition, Zoom
 from .timeline import subtitles_from_transcript
 
 # A segment this interesting gets a subtle punch-in.
 _ZOOM_INTEREST = 0.5
 _ZOOM_SCALE = 1.12
+_XFADE = 0.4  # crossfade duration when transitions are used
 
 
 def _cut_reason(mean_interest: float) -> str:
@@ -30,12 +31,17 @@ def compose_program(
     transcript: list | None = None,
     subtitles: bool = False,
     zoom: bool = False,
+    transitions: bool = False,
     height: int | None = None,
     rationale: list[str] | None = None,
 ) -> EditProgram:
     """Build the program. ``plan`` is a ``kreator.editor.EditPlan``;
     ``transcript`` is a list of ``SpeechSegment`` (source time). ``rationale``
-    is the Director's high-level decision log."""
+    is the Director's high-level decision log.
+
+    Note: ``transitions`` (crossfades) shorten the edited timeline, which would
+    drift burned subtitle timing — so the two are not combined here.
+    """
     cuts = [
         Cut(s.span.start, s.span.end, reason=_cut_reason(s.mean_interest))
         for s in plan.segments
@@ -53,5 +59,12 @@ def compose_program(
                 zooms.append(Zoom(elapsed, elapsed + dur, _ZOOM_SCALE))
             elapsed += dur
 
-    return EditProgram(cuts=cuts, subtitles=subs, zooms=zooms, height=height,
-                       rationale=list(rationale or []))
+    trans: list[Transition] = []
+    if transitions and not subs and len(cuts) > 1:
+        elapsed = 0.0
+        for c in cuts[:-1]:
+            elapsed += c.duration
+            trans.append(Transition(elapsed, "crossfade", _XFADE))
+
+    return EditProgram(cuts=cuts, subtitles=subs, zooms=zooms, transitions=trans,
+                       height=height, rationale=list(rationale or []))
