@@ -23,6 +23,9 @@ models/
 # Web frontend uploads/outputs
 web/_work/
 
+# project-pipeline orchestrator run state (transient per-session working state)
+.pipeline/
+
 # K Library media (real licensed assets, not code)
 assets/music/*
 assets/sfx/*
