@@ -48,15 +48,32 @@ def write_srt(subtitles, path: str) -> None:
     Path(path).write_text("\n".join(lines), encoding="utf-8")
 
 
+def _zoom_scale_for(program: EditProgram, edited_start: float, edited_end: float):
+    """Return the zoom scale to apply to a cut occupying this edited-time range,
+    or None. A cut is zoomed if a Zoom op overlaps its edited range."""
+    for z in program.zooms:
+        if z.start < edited_end and edited_start < z.end:
+            return z.scale
+    return None
+
+
 def _build_filtergraph(program: EditProgram, has_audio: bool, srt_path: str | None):
     parts: list[str] = []
     labels: list[str] = []
+    elapsed = 0.0
     for i, cut in enumerate(program.cuts):
         s, e = cut.source_start, cut.source_end
-        parts.append(f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS[v{i}];")
+        scale = _zoom_scale_for(program, elapsed, elapsed + cut.duration)
+        # A punch-in: scale up, then crop back to the original size (centered),
+        # so every segment stays the same dimensions and concat still works.
+        zoom_chain = (f",scale=iw*{scale}:ih*{scale},crop=iw/{scale}:ih/{scale}"
+                      if scale else "")
+        parts.append(
+            f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS{zoom_chain}[v{i}];")
         if has_audio:
             parts.append(f"[0:a]atrim=start={s:.3f}:end={e:.3f},asetpts=PTS-STARTPTS[a{i}];")
         labels.append(f"[v{i}][a{i}]" if has_audio else f"[v{i}]")
+        elapsed += cut.duration
 
     n = len(program.cuts)
     if has_audio:
