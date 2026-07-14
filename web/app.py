@@ -14,6 +14,7 @@ background job with a live status page that polls until the download is ready.
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -36,6 +37,10 @@ app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024  # 4 GB uploads
 WORK = ROOT / "web" / "_work"
 WORK.mkdir(parents=True, exist_ok=True)
 
+# Optional K Library directory (real, free-to-use assets the user dropped in).
+# If set, the Director may lay a background music bed under the edit.
+LIBRARY_ROOT = os.environ.get("KREATOR_LIBRARY") or None
+
 JOBS: dict[str, dict] = {}
 _VLM = None  # the VLM model, loaded once and reused across jobs
 
@@ -52,6 +57,7 @@ def _process(job_id: str, video_path: Path) -> None:
             job["stage"] = stage
 
         result = autonomous_edit(str(video_path), str(out_path),
+                                 library_root=LIBRARY_ROOT,
                                  progress=progress, vlm_backend=_VLM)
         job["result"] = {
             "label": result["label"],
@@ -62,6 +68,7 @@ def _process(job_id: str, video_path: Path) -> None:
             "segments": result["segments"],
             "subtitles": result.get("subtitles", 0),
             "zooms": result.get("zooms", 0),
+            "music": result.get("music", 0),
             "rationale": result.get("rationale", []),
             "scenes": len(result["scenes"]),
         }
@@ -157,6 +164,7 @@ updates itself, you can leave it open.</div>
        (${s.keep_pct}% kept, ${s.segments} segments, ${s.scenes} scenes analyzed)</div>
        ${s.subtitles?`<div class="stat">${s.subtitles} subtitles burned from the dialogue</div>`:''}
        ${s.zooms?`<div class="stat">${s.zooms} punch-in zoom(s) on the action</div>`:''}
+       ${s.music?`<div class="stat">background music bed from the K Library</div>`:''}
        <a class="dl" href="/job/${id}/download">⬇ Download edited video</a>`;
      return;
    }

@@ -1,9 +1,10 @@
 """Execute an EditProgram with FFmpeg — the deterministic operations runner.
 
 Today it runs the `cut` spine (trim/concat, frame-accurate), burns `subtitle`
-overlays (libass), and scales to the target height. Other operation types are
-carried in the program but not yet executed; they raise nothing — they're just
-skipped until their executor lands.
+overlays (libass), applies `zoom` punch-ins and `transition` crossfades, mixes a
+`music` bed under the audio, and scales to the target height. `broll`/`sfx` are
+carried in the program but not yet executed — they raise nothing, just skipped
+until their executor lands.
 """
 
 from __future__ import annotations
