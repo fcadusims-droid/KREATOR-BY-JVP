@@ -1,20 +1,21 @@
 """Compose an EditProgram from a condense plan + understanding.
 
 This is where the Director's decisions become operations *with justifications*.
-Today it lays down the cut spine (each cut carrying why it was kept) and,
-optionally, subtitles from the transcript. Zoom / transitions / music are wired
-in here as the executor learns to run them.
+It lays down the cut spine (each cut carrying why it was kept) and, optionally,
+subtitles from the transcript, zoom punch-ins, crossfade transitions, and a
+background music bed from the K Library — each executed by the DSL runner.
 """
 
 from __future__ import annotations
 
-from .program import Cut, EditProgram, Transition, Zoom
+from .program import Cut, EditProgram, Music, Transition, Zoom
 from .timeline import subtitles_from_transcript
 
 # A segment this interesting gets a subtle punch-in.
 _ZOOM_INTEREST = 0.5
 _ZOOM_SCALE = 1.12
 _XFADE = 0.4  # crossfade duration when transitions are used
+_MUSIC_VOLUME = 0.22  # background bed, kept well under the creator's own audio
 
 
 def _cut_reason(mean_interest: float) -> str:
@@ -32,12 +33,15 @@ def compose_program(
     subtitles: bool = False,
     zoom: bool = False,
     transitions: bool = False,
+    music_track: str | None = None,
+    music_volume: float = _MUSIC_VOLUME,
     height: int | None = None,
     rationale: list[str] | None = None,
 ) -> EditProgram:
     """Build the program. ``plan`` is a ``kreator.editor.EditPlan``;
     ``transcript`` is a list of ``SpeechSegment`` (source time). ``rationale``
-    is the Director's high-level decision log.
+    is the Director's high-level decision log. ``music_track`` is a path to a
+    real K Library asset to lay under the whole edit (or ``None`` for no music).
 
     Note: ``transitions`` (crossfades) shorten the edited timeline, which would
     drift burned subtitle timing — so the two are not combined here.
@@ -66,5 +70,12 @@ def compose_program(
             elapsed += c.duration
             trans.append(Transition(elapsed, "crossfade", _XFADE))
 
+    music: list[Music] = []
+    if music_track and cuts:
+        # One background bed spanning the whole edited timeline. The executor
+        # loops it and trims to the video length, so an exact end isn't needed.
+        edited_duration = sum(c.duration for c in cuts)
+        music.append(Music(music_track, 0.0, edited_duration, music_volume))
+
     return EditProgram(cuts=cuts, subtitles=subs, zooms=zooms, transitions=trans,
-                       height=height, rationale=list(rationale or []))
+                       music=music, height=height, rationale=list(rationale or []))

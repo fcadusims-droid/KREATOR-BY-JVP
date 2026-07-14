@@ -22,6 +22,21 @@ missing manifest is fine — files are then matched by filename.
 **The media files themselves are gitignored** (they're yours/licensed, not part
 of the code). Only this README and `manifest.example.json` are tracked.
 
+## Turning on the autonomous music bed
+
+Point Kreator at this library and the autonomous editor will lay a background
+music bed under action/montage edits (mission edits stay music-free so briefings
+read). Pick the track by the preset's mood; if the library has no music, the
+edit is simply produced without a bed.
+
+```bash
+# Web app: set the library directory, then background music is added automatically
+KREATOR_LIBRARY=./assets python web/app.py
+```
+
+In code: `autonomous_edit(video, out, library_root="./assets")`. With no
+`library_root` (the default) nothing is added — behaviour is unchanged.
+
 ## Where to get free-to-use assets
 
 Use only clearly free/CC0/royalty-free sources you have the right to use, e.g.

@@ -107,6 +107,23 @@ def test_music_mix_in_filtergraph():
     assert "amix" in graph and "volume=0.2" in graph and alabel == "amx"
 
 
+def test_compose_adds_music_bed_spanning_edited_timeline():
+    from kreator.editor.condenser import EditPlan, KeepSegment
+    from kreator.types import Timespan
+    from kreator.dsl import compose_program
+
+    segs = [KeepSegment(Timespan(0.0, 10.0), 0.6),
+            KeepSegment(Timespan(20.0, 30.0), 0.4)]  # 20s of edited timeline
+    prog = compose_program(EditPlan(segs, 40.0, 0.5),
+                           music_track="lib/music/theme.mp3", music_volume=0.2)
+    assert len(prog.music) == 1
+    m = prog.music[0]
+    assert m.track == "lib/music/theme.mp3" and m.volume == 0.2
+    assert m.start == 0.0 and abs(m.end - 20.0) < 1e-6   # spans the whole edit
+    # music with no track requested → no music op
+    assert compose_program(EditPlan(segs, 40.0, 0.5)).music == []
+
+
 def test_transitions_suppressed_when_subtitles_present():
     # Crossfades shorten the timeline and would drift subtitle timing, so they
     # are not combined.

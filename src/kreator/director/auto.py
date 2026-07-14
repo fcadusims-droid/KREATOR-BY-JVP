@@ -14,6 +14,7 @@ from typing import Callable
 
 from ..dsl import compose_program, execute_program
 from ..editor import Condenser
+from ..library import KLibrary
 from ..signal_layer import analyze_video
 from ..speech import presence_series, transcribe
 from ..validator import validate_render
@@ -22,12 +23,22 @@ from ..vlm.backends import LocalVLMBackend
 from .content import EDITING_PRESETS, detect_content
 
 
+def _pick_music(library_root, mood, has_audio):
+    """Resolve a K Library music track for ``mood``, or ``None``. Returns
+    ``(track_path, asset)``. No library / no match / silent video → no music."""
+    if not (library_root and mood and has_audio):
+        return None, None
+    asset = KLibrary(library_root).find_music(mood)
+    return (str(asset.path), asset) if asset else (None, None)
+
+
 def autonomous_edit(
     video_path: str,
     out_path: str,
     *,
     vlm_frames: int = 14,
     height: int = 720,
+    library_root=None,
     progress: Callable[[str], None] = lambda s: None,
     vlm_backend=None,
 ) -> dict:
@@ -35,6 +46,8 @@ def autonomous_edit(
 
     Returns a summary dict (detected genre, preset, durations, scene labels).
     ``progress`` is called with a short human status at each stage.
+    ``library_root``, if given, is a K Library directory the Director may pull a
+    background music bed from (only real, free-to-use files the user added).
     """
     progress("Analyzing video (motion, audio, scenes)…")
     bundle = analyze_video(video_path)
@@ -78,12 +91,22 @@ def autonomous_edit(
     if preset["zoom"]:
         rationale.append("Added subtle punch-ins on the most intense moments.")
 
+    # A background music bed from the K Library, if the preset wants one and the
+    # library actually has a matching (real, free-to-use) track.
+    music_track, music_asset = _pick_music(
+        library_root, preset.get("music"), has_audio)
+    if music_track:
+        rationale.append(
+            f"Laid a '{preset['music']}' music bed ({music_asset.path.name}) "
+            "under the edit from the K Library, mixed below the game audio.")
+
     # Compose the edit as an operations program: cut spine + subtitles (the
-    # creator's own spoken words) + zoom punch-ins, each with its justification.
+    # creator's own spoken words) + zoom punch-ins + music bed, each justified.
     program = compose_program(
         plan, transcript=segs,
         subtitles=use_subs,
         zoom=bool(preset["zoom"]),
+        music_track=music_track,
         height=height,
         rationale=rationale,
     )
@@ -108,6 +131,7 @@ def autonomous_edit(
         "segments": len(plan.segments),
         "subtitles": len(program.subtitles),
         "zooms": len(program.zooms),
+        "music": len(program.music),
         "rationale": program.rationale,
         "program": program.to_dict(),
         "validation": report.to_dict(),
