@@ -16,6 +16,7 @@ from ..dsl import compose_program, execute_program
 from ..editor import Condenser
 from ..signal_layer import analyze_video
 from ..speech import presence_series, transcribe
+from ..validator import validate_render
 from ..vlm import label_keyframes, select_keyframes, visual_keep_series
 from ..vlm.backends import LocalVLMBackend
 from .content import EDITING_PRESETS, detect_content
@@ -90,6 +91,11 @@ def autonomous_edit(
     progress(f"Rendering the edited video at {height}p…")
     execute_program(video_path, program, out_path, has_audio=has_audio)
 
+    progress("Validating the finished video…")
+    report = validate_render(out_path, program, has_audio=has_audio)
+    if not report.ok:
+        raise RuntimeError("render validation failed: " + "; ".join(report.issues))
+
     return {
         "genre": profile.genre,
         "label": profile.label,
@@ -104,6 +110,7 @@ def autonomous_edit(
         "zooms": len(program.zooms),
         "rationale": program.rationale,
         "program": program.to_dict(),
+        "validation": report.to_dict(),
         "scenes": [lab.to_dict() for lab in labels],
         "out": out_path,
     }

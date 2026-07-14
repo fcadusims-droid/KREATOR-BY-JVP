@@ -22,3 +22,9 @@ models/
 
 # Web frontend uploads/outputs
 web/_work/
+
+# K Library media (real licensed assets, not code)
+assets/music/*
+assets/sfx/*
+assets/memes/*
+!assets/**/.gitkeep

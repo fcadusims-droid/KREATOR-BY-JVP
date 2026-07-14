@@ -57,10 +57,36 @@ def _zoom_scale_for(program: EditProgram, edited_start: float, edited_end: float
     return None
 
 
+def _crossfade_chain(parts: list, program: EditProgram, n: int, has_audio: bool) -> None:
+    """Chain xfade (video) + acrossfade (audio) across the segments, ending in
+    [cv]/[outa]. Each transition overlaps neighbours by ``duration`` seconds, so
+    video and audio shorten together and stay in sync."""
+    d = program.transitions[0].duration
+    # Video: offset of each xfade is the accumulated length so far, minus d.
+    acc = program.cuts[0].duration
+    prev = "v0"
+    for i in range(1, n):
+        off = acc - d
+        out = "cv" if i == n - 1 else f"vt{i}"
+        parts.append(f"[{prev}][v{i}]xfade=transition=fade:duration={d}:"
+                     f"offset={off:.3f}[{out}];")
+        prev = out
+        acc += program.cuts[i].duration - d
+    if has_audio:
+        aprev = "a0"
+        for i in range(1, n):
+            aout = "outa" if i == n - 1 else f"at{i}"
+            parts.append(f"[{aprev}][a{i}]acrossfade=d={d}[{aout}];")
+            aprev = aout
+
+
 def _build_filtergraph(program: EditProgram, has_audio: bool, srt_path: str | None):
     parts: list[str] = []
     labels: list[str] = []
     elapsed = 0.0
+    # xfade requires a constant frame rate; after trim+setpts it isn't, so force
+    # one on every segment when transitions are in play.
+    fps_fix = ",fps=30" if program.transitions and len(program.cuts) > 1 else ""
     for i, cut in enumerate(program.cuts):
         s, e = cut.source_start, cut.source_end
         scale = _zoom_scale_for(program, elapsed, elapsed + cut.duration)
@@ -69,14 +95,17 @@ def _build_filtergraph(program: EditProgram, has_audio: bool, srt_path: str | No
         zoom_chain = (f",scale=iw*{scale}:ih*{scale},crop=iw/{scale}:ih/{scale}"
                       if scale else "")
         parts.append(
-            f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS{zoom_chain}[v{i}];")
+            f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS"
+            f"{zoom_chain}{fps_fix}[v{i}];")
         if has_audio:
             parts.append(f"[0:a]atrim=start={s:.3f}:end={e:.3f},asetpts=PTS-STARTPTS[a{i}];")
         labels.append(f"[v{i}][a{i}]" if has_audio else f"[v{i}]")
         elapsed += cut.duration
 
     n = len(program.cuts)
-    if has_audio:
+    if program.transitions and n > 1:
+        _crossfade_chain(parts, program, n, has_audio)
+    elif has_audio:
         parts.append(f"{''.join(labels)}concat=n={n}:v=1:a=1[cv][outa];")
     else:
         parts.append(f"{''.join(labels)}concat=n={n}:v=1:a=0[cv];")
@@ -91,7 +120,17 @@ def _build_filtergraph(program: EditProgram, has_audio: bool, srt_path: str | No
         parts.append(f"[{vlabel}]scale=-2:{int(program.height)}[outs];")
         vlabel = "outs"
 
-    return "".join(parts).rstrip(";"), vlabel
+    # Background music (from the K Library) mixed under the original audio. The
+    # music is input [1:a], looped, lowered to its volume, and trimmed to the
+    # video length (duration=first).
+    alabel = "outa"
+    if has_audio and program.music:
+        vol = program.music[0].volume
+        parts.append(f"[1:a]volume={vol}[mus];"
+                     f"[outa][mus]amix=inputs=2:duration=first:dropout_transition=0[amx];")
+        alabel = "amx"
+
+    return "".join(parts).rstrip(";"), vlabel, alabel
 
 
 def execute_program(
@@ -115,23 +154,28 @@ def execute_program(
         srt_path = str(Path(tmp) / "subs.srt")
         write_srt(program.subtitles, srt_path)
 
-    graph, vlabel = _build_filtergraph(program, has_audio, srt_path)
+    graph, vlabel, alabel = _build_filtergraph(program, has_audio, srt_path)
     script = str(Path(tmp) / "graph.txt")
     Path(script).write_text(graph, encoding="utf-8")
 
-    cmd = [
-        _ffmpeg_bin(), "-y", "-i", video_path,
+    # A background music track becomes a second, looped input.
+    music_track = program.music[0].track if (has_audio and program.music) else None
+
+    cmd = [_ffmpeg_bin(), "-y", "-i", video_path]
+    if music_track:
+        cmd += ["-stream_loop", "-1", "-i", music_track]
+    cmd += [
         "-filter_complex_script", script,
         "-map", f"[{vlabel}]",
-        *(["-map", "[outa]"] if has_audio else []),
+        *(["-map", f"[{alabel}]"] if has_audio else []),
         "-c:v", "libx264", "-crf", str(crf), "-preset", preset,
         "-movflags", "+faststart",
         *(["-c:a", "aac", "-b:a", "128k"] if has_audio else []),
         out_path,
     ]
     if verbose:
-        print(f"[dsl] {len(program.cuts)} cuts, {len(program.subtitles)} subtitles "
-              f"-> {out_path}")
+        print(f"[dsl] {len(program.cuts)} cuts, {len(program.subtitles)} subtitles, "
+              f"{len(program.music)} music -> {out_path}")
     proc = subprocess.run(cmd, capture_output=True, text=True)
     shutil.rmtree(tmp, ignore_errors=True)
     if proc.returncode != 0:
