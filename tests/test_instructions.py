@@ -52,6 +52,13 @@ def test_no_captions_wins_over_captions_keyword():
     assert parse_instruction("um short sem legendas").captions == "none"
 
 
+def test_language_choice_pt_en():
+    assert parse_instruction("um short com legendas em espanhol").language == "es"
+    assert parse_instruction("a short with captions in english").language == "en"
+    assert parse_instruction("legendas em português").language == "pt"
+    assert parse_instruction("make a short").language is None   # auto-detect
+
+
 def test_empty_or_unrelated_text_keeps_defaults():
     req = parse_instruction("obrigado!")
     assert req.long_edit is True and req.shorts == 0

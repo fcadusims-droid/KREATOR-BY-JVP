@@ -49,6 +49,9 @@ def main() -> int:
                          "captions instead of plain subtitles")
     ap.add_argument("--whisper-model", default="base",
                     help="faster-whisper model size (tiny/base/small)")
+    ap.add_argument("--language", default=None,
+                    help="spoken-language ISO code (e.g. en, pt, es); "
+                         "default auto-detects")
     ap.add_argument("--vlm", action="store_true",
                     help="describe sampled keyframes with a local CPU VLM and keep "
                          "scenic/dialogue/action scenes (slow, offline, no GPU)")
@@ -87,7 +90,7 @@ def main() -> int:
         print("Transcribing dialogue (Whisper, CPU)…")
         segments = transcribe(args.video, model_size=args.whisper_model,
                               word_timestamps=args.captions,
-                              verbose=args.verbose)
+                              language=args.language, verbose=args.verbose)
         speech = presence_series(segments, bundle.times)
         talk_time = sum(s.end - s.start for s in segments)
         print(f"  {len(segments)} speech segments, {format_tc(talk_time)} of dialogue")

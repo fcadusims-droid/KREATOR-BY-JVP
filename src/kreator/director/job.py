@@ -39,6 +39,7 @@ class JobRequest:
     shorts: int = 0                  # how many vertical Shorts to also produce
     aspect: str | None = None        # long-edit aspect (None = keep source)
     captions: str = "auto"           # auto | none | plain | karaoke
+    language: str | None = None      # spoken-language ISO code; None = detect
     intensity: str = "auto"          # auto | light | medium | heavy
     height: int = 720
     music: bool = True
@@ -49,6 +50,7 @@ class JobRequest:
     def to_dict(self) -> dict:
         return {"long_edit": self.long_edit, "shorts": self.shorts,
                 "aspect": self.aspect, "captions": self.captions,
+                "language": self.language,
                 "intensity": self.intensity, "height": self.height,
                 "music": self.music, "min_short_len": self.min_short_len,
                 "max_short_len": self.max_short_len, "notes": self.notes}
@@ -86,13 +88,14 @@ def _cached_understanding(
 
 def _cached_transcript(
     video_path: str, cache: AnalysisCache | None, want_words: bool,
-    progress: Callable[[str], None],
+    language: str | None, progress: Callable[[str], None],
 ) -> list:
     key = None
     if cache is not None:
         key = content_key(video_path, {"stage": "transcript",
                                        "v": ANALYSIS_VERSION,
-                                       "words": want_words})
+                                       "words": want_words,
+                                       "language": language})
         hit = cache.get(key)
         if hit is not None:
             progress("Reusing cached transcript…")
@@ -103,7 +106,8 @@ def _cached_transcript(
                 for d in hit
             ]
     progress("Transcribing dialogue…" + (" (word timings)" if want_words else ""))
-    transcript = transcribe(video_path, word_timestamps=want_words)
+    transcript = transcribe(video_path, word_timestamps=want_words,
+                            language=language)
     if cache is not None and key is not None:
         cache.put(key, [s.to_dict() for s in transcript])
     return transcript
@@ -240,7 +244,8 @@ def run_job(
     transcript: list = []
     if _needs_transcript(req, preset, und.has_audio):
         want_words = req.captions in ("auto", "karaoke")
-        transcript = _cached_transcript(video_path, cache, want_words, progress)
+        transcript = _cached_transcript(video_path, cache, want_words,
+                                        req.language, progress)
 
         # With the transcript in hand, the Director can recognize *talking*
         # content (vlog/podcast) — an edit driven by speech, not by action.

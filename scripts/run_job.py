@@ -3,7 +3,7 @@
 
     python scripts/run_job.py --video clip.mp4 --shorts 3 -o out/job
     python scripts/run_job.py --video clip.mp4 \
-        --instruction "faz 3 shorts de ~30 segundos com legenda animada" -o out/job
+        --instruction "make 3 shorts of ~30 seconds with animated captions"
 
 The --instruction sentence is read by the deterministic conversational parser;
 explicit flags override whatever it understood.
@@ -24,8 +24,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Kreator: multi-deliverable edit job.")
     ap.add_argument("--video", required=True)
     ap.add_argument("--instruction", default=None,
-                    help="plain-language request (pt/en), e.g. "
-                         "'3 shorts de ~30s com legenda animada, sem música'")
+                    help="plain-language request (en/pt), e.g. "
+                         "'3 shorts of ~30s with animated captions, no music'")
     ap.add_argument("--no-long-edit", action="store_true")
     ap.add_argument("--shorts", type=int, default=None)
     ap.add_argument("--aspect", default=None, choices=["9:16", "1:1"])
@@ -33,6 +33,9 @@ def main() -> int:
                     choices=["auto", "none", "plain", "karaoke"])
     ap.add_argument("--intensity", default=None,
                     choices=["auto", "light", "medium", "heavy"])
+    ap.add_argument("--language", default=None,
+                    help="spoken-language ISO code for transcription/captions "
+                         "(e.g. en, pt, es); default auto-detects")
     ap.add_argument("--height", type=int, default=None, choices=[480, 720, 1080])
     ap.add_argument("--library", default=None, help="K Library directory")
     ap.add_argument("--cache", default=None, help="analysis cache directory")
@@ -50,6 +53,8 @@ def main() -> int:
         req.captions = args.captions
     if args.intensity:
         req.intensity = args.intensity
+    if args.language:
+        req.language = args.language
     if args.height:
         req.height = args.height
 

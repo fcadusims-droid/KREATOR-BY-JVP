@@ -28,6 +28,18 @@ _NUMBER_WORDS = {
     "dez": 10, "ten": 10,
 }
 
+# Spoken/caption language the user can name, mapped to Whisper ISO codes.
+_LANGUAGES = {
+    "pt": ("portugues", "português", "portuguese"),
+    "en": ("ingles", "inglês", "english"),
+    "es": ("espanhol", "español", "spanish"),
+    "fr": ("frances", "francês", "french"),
+    "de": ("alemao", "alemão", "german"),
+    "it": ("italiano", "italian"),
+    "ja": ("japones", "japonês", "japanese"),
+    "ko": ("coreano", "korean"),
+}
+
 _LONG_EDIT_CUES = (
     "highlight", "melhores momentos", "resumo", "corte completo", "full edit",
     "video completo", "vídeo completo", "long edit", "edita o video",
@@ -47,10 +59,10 @@ def _find_count(text: str, after: str = "") -> int | None:
 def parse_instruction(text: str) -> JobRequest:
     """Read a creator's sentence into a JobRequest (defaults where silent).
 
-    Examples it understands (pt/en):
-      "faz 5 shorts de ~30 segundos com legenda animada, sem música"
+    Examples it understands (en/pt):
+      "make 5 shorts of ~30 seconds with animated captions, no music"
       "turn this into a vertical Short with karaoke captions"
-      "corte completo leve + três shorts"
+      "faz 3 shorts de ~30 segundos com legenda animada, sem música"
     """
     t = " " + text.lower().strip() + " "
     req = JobRequest()
@@ -99,6 +111,13 @@ def parse_instruction(text: str) -> JobRequest:
     elif re.search(r"legendas?|captions?|subtitles?", t):
         req.captions = "plain"
         notes.append("plain captions")
+
+    # Spoken/caption language ("legendas em espanhol", "captions in english").
+    for code, names in _LANGUAGES.items():
+        if any(f" {n} " in t or f" {n}," in t or f" {n}." in t for n in names):
+            req.language = code
+            notes.append(f"language: {code}")
+            break
 
     # Music.
     if re.search(r"sem m[úu]sica|no music", t):

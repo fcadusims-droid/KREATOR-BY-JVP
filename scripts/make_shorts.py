@@ -29,6 +29,9 @@ def main() -> int:
     ap.add_argument("--height", type=int, default=1080, choices=[480, 720, 1080])
     ap.add_argument("--speech", action="store_true",
                     help="transcribe dialogue and burn it as captions")
+    ap.add_argument("--language", default=None,
+                    help="spoken-language ISO code (e.g. en, pt, es); "
+                         "default auto-detects")
     ap.add_argument("--whisper-model", default="base")
     ap.add_argument("-o", "--out", default="out/shorts", help="output directory")
     args = ap.parse_args()
@@ -38,7 +41,7 @@ def main() -> int:
         from kreator.speech import transcribe
         print("Transcribing dialogue with word timings (Whisper, CPU)…")
         transcript = transcribe(args.video, model_size=args.whisper_model,
-                                word_timestamps=True)
+                                word_timestamps=True, language=args.language)
 
     spec = ShortSpec(min_len=args.min_len, max_len=args.max_len,
                      aspect=None if args.aspect == "source" else args.aspect,

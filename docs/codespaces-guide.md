@@ -42,9 +42,10 @@ The Kreator page opens in a new tab. No settings are *required* — Kreator
 decides everything on its own — but you can guide it if you want:
 
 1. **Choose your video** (mp4/mov/mkv).
-2. Optionally **type what you want** in plain language ("faz 3 shorts de ~30
-   segundos com legenda animada") or open **Guided options** (deliverables,
-   Shorts count, cut intensity, captions, aspect).
+2. Optionally **type what you want** in plain language, English or Portuguese
+   ("make 3 shorts of ~30 seconds with animated captions"), or open **Guided
+   options** (deliverables, Shorts count, cut intensity, captions, spoken
+   language, aspect).
 3. Click **Edit my video →**.
 
 Kreator then, by itself: analyzes the footage → recognizes the game/genre from

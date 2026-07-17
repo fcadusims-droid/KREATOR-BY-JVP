@@ -74,18 +74,21 @@ def _model(model_size: str):  # pragma: no cover - loads weights
 
 def transcribe(
     video_path: str, *, model_size: str = "base", word_timestamps: bool = False,
-    verbose: bool = False
+    language: str | None = None, verbose: bool = False
 ) -> list[SpeechSegment]:
     """Transcribe speech in ``video_path``. Returns time-stamped segments.
 
     ``vad_filter`` is on so gunfire, music, and engine noise are not mistaken
     for speech — important for gameplay audio. ``word_timestamps`` also times
     each word (slower), which is what animated karaoke captions need.
+    ``language`` is an ISO code ("pt", "en", "es", …) to pin the spoken
+    language; ``None`` lets Whisper auto-detect it.
     """
     wav = _extract_wav(video_path)
     try:
         model = _model(model_size)
         segments, info = model.transcribe(wav, vad_filter=True,
+                                          language=language,
                                           word_timestamps=word_timestamps)
         out = []
         for s in segments:

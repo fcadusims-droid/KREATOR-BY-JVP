@@ -67,6 +67,8 @@ def _request_from_form(form) -> JobRequest:
         req.captions = form["captions"]
     if form.get("aspect") in ("9:16", "1:1"):
         req.aspect = form["aspect"]
+    if form.get("language"):
+        req.language = form["language"]
     return req
 
 
@@ -124,8 +126,8 @@ INDEX_HTML = """<!doctype html><html><head><meta charset="utf-8">
 own — or tell it what you want. Local &amp; offline.</div>
 <form method="post" action="/upload" enctype="multipart/form-data">
  <input type="file" name="video" accept="video/*" required>
- <label>Tell Kreator what you want (optional — plain language, pt/en)</label>
- <textarea name="instruction" placeholder="ex.: faz 3 shorts de ~30 segundos com legenda animada, sem música"></textarea>
+ <label>Tell Kreator what you want (optional — plain language, en/pt)</label>
+ <textarea name="instruction" placeholder='e.g. "make 3 shorts of ~30 seconds with animated captions, no music"'></textarea>
  <details><summary>Guided options</summary>
   <div class="row">
    <div><label>Deliverables</label>
@@ -156,6 +158,18 @@ own — or tell it what you want. Local &amp; offline.</div>
      <option value="">Keep source</option>
      <option value="9:16">Vertical 9:16</option>
      <option value="1:1">Square 1:1</option>
+    </select></div>
+   <div><label>Spoken language</label>
+    <select name="language">
+     <option value="">Auto-detect</option>
+     <option value="en">English</option>
+     <option value="pt">Português</option>
+     <option value="es">Español</option>
+     <option value="fr">Français</option>
+     <option value="de">Deutsch</option>
+     <option value="it">Italiano</option>
+     <option value="ja">日本語</option>
+     <option value="ko">한국어</option>
     </select></div>
   </div>
  </details>
