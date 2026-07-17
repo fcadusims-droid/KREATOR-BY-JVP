@@ -25,8 +25,9 @@ Upload a gameplay video → Kreator **understands what game it is and edits it o
 its own** (no settings) → **download** the finished edit.
 
 *(The CLI, `scripts/run_edit.py`, still exposes the individual knobs —
-`--target-keep`, `--height {480,720,1080}`, `--speech`, `--vlm` — for manual
-control; the web app is the fully autonomous path.)*
+`--target-keep`, `--height {480,720,1080}`, `--aspect {9:16,1:1,16:9}`,
+`--speech`, `--vlm` — for manual control; the web app is the fully autonomous
+path.)*
 
 ## What Kreator does today
 
@@ -58,9 +59,12 @@ The edit is then produced as a small **operations program** (a cut spine plus
 overlays, each carrying its justification) run by an FFmpeg executor. Operations
 today: `cut`, `subtitle` (the creator's own transcribed dialogue, remapped to
 the edited timeline), `zoom` (punch-in on the action), `transition` (crossfade),
-and `music` (a background track from the **K Library** of free-to-use assets,
-mixed under the audio). A **K Validator** step checks the render matches the plan
-before it's handed over. `b-roll`/`sfx` are defined for later.
+`music` (a background track from the **K Library** of free-to-use assets, mixed
+under the audio), and `reframe` (recrop to another aspect — `--aspect 9:16`
+turns the edit vertical for Shorts, with the crop window following the action's
+motion, or `--reframe pad` to fit with bars). A **K Validator** step checks the
+render matches the plan — duration, streams, and aspect — before it's handed
+over. `b-roll` is defined in the program but its executor is future work.
 
 The reasoning — the model *plans* an intermediate representation (timeline +
 operations + justifications) and a deterministic executor runs it, rather than a
@@ -96,16 +100,22 @@ Details and the experiment setup: [`data/README.md`](./data/README.md).
 ```
 src/kreator/
   types.py            # dependency-free domain types
+  ffmpeg.py           # single place the FFmpeg binary is resolved
   signal_layer/       # deterministic CPU signals: motion, audio, scenes
   evidence/           # K Analyst: signals → normalized evidence (+ backend protocols)
   planner/            # K Clipper: scoring + deterministic ranking (E1)
-  editor/             # K Editor: interest curve → condense → FFmpeg render
+  editor/             # K Editor: interest curve → condense → render (via the DSL)
+  dsl/                # the edit as data: operations program + FFmpeg executor
+  reframe/            # aspect reframing: focus-follow crop math for 9:16 Shorts
+  director/           # autonomous mode: recognize the game → preset → program
+  library/            # K Library: registry of the user's free-to-use assets
+  validator/          # K Validator: does the render match the plan?
   speech/             # dialogue transcription (faster-whisper, CPU)
   vlm/                # local scene understanding (keyframes → SmolVLM → classify)
 web/app.py            # upload → edit → download frontend (Flask)
 scripts/              # run_edit, run_e1, eval_e1, make_truth, analyze_cache, calibrate
 tests/                # deterministic tests (no video, no models)
-docs/                 # codespaces-guide, vlm-without-gpu
+docs/                 # codespaces-guide, vlm-without-gpu, training-vs-dsl, not-generative
 ```
 
 ## Install options

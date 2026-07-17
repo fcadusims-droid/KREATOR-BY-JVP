@@ -10,12 +10,12 @@ proxy reads as boring, using the VLM only on the few sampled frames.
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..ffmpeg import ffmpeg_bin
 from ..types import format_tc
 from .classify import KEEP_TYPES, scene_type
 from .keyframes import Keyframe
@@ -32,21 +32,9 @@ class SceneLabel:
                 "scene_type": self.scene_type, "description": self.description}
 
 
-def _ffmpeg_bin() -> str:
-    found = shutil.which("ffmpeg")
-    if found:
-        return found
-    try:
-        import imageio_ffmpeg  # type: ignore
-
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:  # pragma: no cover
-        return "ffmpeg"
-
-
 def _extract_frame(video_path: str, t: float, dest: str) -> bool:
     proc = subprocess.run(
-        [_ffmpeg_bin(), "-y", "-ss", str(t), "-i", video_path,
+        [ffmpeg_bin(), "-y", "-ss", str(t), "-i", video_path,
          "-frames:v", "1", "-q:v", "3", dest],
         capture_output=True,
     )

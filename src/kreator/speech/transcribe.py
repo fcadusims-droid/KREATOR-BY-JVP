@@ -6,11 +6,12 @@ actually transcribe. The model is loaded once and cached per process.
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+from ..ffmpeg import ffmpeg_bin
 
 _MODEL_CACHE: dict[str, object] = {}
 
@@ -29,24 +30,12 @@ class SpeechSegment:
         }
 
 
-def _ffmpeg_bin() -> str:
-    found = shutil.which("ffmpeg")
-    if found:
-        return found
-    try:
-        import imageio_ffmpeg  # type: ignore
-
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:  # pragma: no cover
-        return "ffmpeg"
-
-
 def _extract_wav(video_path: str) -> str:
     """Decode the audio track to a temp 16 kHz mono WAV for the ASR model."""
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
     cmd = [
-        _ffmpeg_bin(), "-y", "-i", video_path,
+        ffmpeg_bin(), "-y", "-i", video_path,
         "-vn", "-ac", "1", "-ar", "16000", tmp.name,
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True)

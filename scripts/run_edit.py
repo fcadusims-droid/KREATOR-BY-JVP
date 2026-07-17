@@ -54,6 +54,12 @@ def main() -> int:
     ap.add_argument("--height", type=int, default=None,
                     choices=[480, 720, 1080],
                     help="output resolution height (480/720/1080); default keeps source")
+    ap.add_argument("--aspect", default=None, choices=["9:16", "1:1", "16:9"],
+                    help="reframe the edit to this aspect (9:16 = vertical "
+                         "Shorts); default keeps the source aspect")
+    ap.add_argument("--reframe", default="crop", choices=["crop", "pad"],
+                    help="with --aspect: 'crop' follows the action inside a "
+                         "real-pixel window, 'pad' fits the frame with bars")
     ap.add_argument("-o", "--out", default="out/edited.mp4",
                     help="edited video output path")
     ap.add_argument("--plan-out", default=None, help="edit-plan JSON output path")
@@ -73,6 +79,7 @@ def main() -> int:
 
     # A cached bundle already has speech presence baked into bundle.speech.
     speech = bundle.speech if (args.bundle and any(bundle.speech)) else None
+    segments = []
     if args.speech and not args.bundle:
         print("Transcribing dialogue (Whisper, CPU)…")
         segments = transcribe(args.video, model_size=args.whisper_model,
@@ -124,6 +131,33 @@ def main() -> int:
     if not plan.segments:
         print("No segments to render — try a higher --target-keep.")
         return 1
+
+    if args.aspect:
+        # Reframed renders go through the DSL: cut spine + Reframe op, with a
+        # per-cut horizontal focus so the crop follows the action.
+        from kreator.dsl import compose_program, execute_program
+        from kreator.validator import validate_render
+
+        focus = None
+        if args.reframe == "crop":
+            from kreator.reframe import cut_focus_centers
+            print("Finding the action's horizontal focus per kept segment…")
+            focus = cut_focus_centers(
+                args.video, [(s.span.start, s.span.end) for s in plan.segments])
+        program = compose_program(
+            plan, transcript=segments, subtitles=bool(segments),
+            height=args.height, aspect=args.aspect,
+            reframe_strategy=args.reframe, focus_x=focus,
+            rationale=[f"reframed to {args.aspect} via --aspect"])
+        print(f"Rendering {args.aspect} video (FFmpeg, {args.reframe})…")
+        out = execute_program(args.video, program, args.out,
+                              has_audio=has_audio, verbose=args.verbose)
+        report = validate_render(out, program, has_audio=has_audio)
+        if not report.ok:
+            print("Validation FAILED: " + "; ".join(report.issues))
+            return 1
+        print(f"Wrote edited video: {out} (validated)")
+        return 0
 
     print("Rendering edited video (FFmpeg re-encode of kept parts)…")
     out = render_segments(args.video, plan, args.out, has_audio=has_audio,

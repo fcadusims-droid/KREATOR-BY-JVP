@@ -2,9 +2,10 @@
 
 Today it runs the `cut` spine (trim/concat, frame-accurate), burns `subtitle`
 overlays (libass), applies `zoom` punch-ins and `transition` crossfades, mixes a
-`music` bed under the audio, and scales to the target height. `broll`/`sfx` are
-carried in the program but not yet executed — they raise nothing, just skipped
-until their executor lands.
+`music` bed under the audio, reframes to a target aspect (`reframe`: 9:16
+Shorts via focus-aware crop or pad), and scales to the target height.
+`broll` is carried in the program but not yet executed — it raises nothing,
+just skipped until its executor lands.
 """
 
 from __future__ import annotations
@@ -14,19 +15,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ..ffmpeg import ffmpeg_bin
 from .program import EditProgram
-
-
-def _ffmpeg_bin() -> str:
-    found = shutil.which("ffmpeg")
-    if found:
-        return found
-    try:
-        import imageio_ffmpeg  # type: ignore
-
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:  # pragma: no cover
-        return "ffmpeg"
 
 
 def _srt_time(t: float) -> str:
@@ -56,6 +46,32 @@ def _zoom_scale_for(program: EditProgram, edited_start: float, edited_end: float
         if z.start < edited_end and edited_start < z.end:
             return z.scale
     return None
+
+
+def _reframe_chain(program: EditProgram, cut_index: int) -> str:
+    """The per-segment crop/pad filter step for the program's Reframe, or "".
+
+    Written with iw/ih expressions so it works at any source resolution, and
+    with output dimensions forced even (x264 requires it). ``crop`` centers the
+    window on the cut's focus, clamped inside the frame; ``pad`` fits the whole
+    frame and adds neutral bars. Applied per segment (same aspect for all), so
+    concat/xfade still see identical dimensions.
+    """
+    rf = program.reframe
+    if rf is None:
+        return ""
+    aw, ah = rf.aspect.split(":")
+    # Target width at full height is ih*aw/ah; target height at full width is
+    # iw*ah/aw. min() picks whichever fits inside the source (crop), max()
+    # whichever contains it (pad).
+    if rf.strategy == "pad":
+        return (f",pad=w='trunc((max(iw,ih*{aw}/{ah})+1)/2)*2'"
+                f":h='trunc((max(ih,iw*{ah}/{aw})+1)/2)*2'"
+                f":x=(ow-iw)/2:y=(oh-ih)/2")
+    fx = rf.focus_x[cut_index] if cut_index < len(rf.focus_x) else 0.5
+    return (f",crop=w='trunc(min(iw,ih*{aw}/{ah})/2)*2'"
+            f":h='trunc(min(ih,iw*{ah}/{aw})/2)*2'"
+            f":x='clip(iw*{fx:.4f}-ow/2,0,iw-ow)':y='(ih-oh)/2'")
 
 
 def _crossfade_chain(parts: list, program: EditProgram, n: int, has_audio: bool) -> None:
@@ -97,7 +113,7 @@ def _build_filtergraph(program: EditProgram, has_audio: bool, srt_path: str | No
                       if scale else "")
         parts.append(
             f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS"
-            f"{zoom_chain}{fps_fix}[v{i}];")
+            f"{zoom_chain}{_reframe_chain(program, i)}{fps_fix}[v{i}];")
         if has_audio:
             parts.append(f"[0:a]atrim=start={s:.3f}:end={e:.3f},asetpts=PTS-STARTPTS[a{i}];")
         labels.append(f"[v{i}][a{i}]" if has_audio else f"[v{i}]")
@@ -162,7 +178,7 @@ def execute_program(
     # A background music track becomes a second, looped input.
     music_track = program.music[0].track if (has_audio and program.music) else None
 
-    cmd = [_ffmpeg_bin(), "-y", "-i", video_path]
+    cmd = [ffmpeg_bin(), "-y", "-i", video_path]
     if music_track:
         cmd += ["-stream_loop", "-1", "-i", music_track]
     cmd += [

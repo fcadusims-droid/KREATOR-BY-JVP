@@ -116,8 +116,9 @@ No settings. Local &amp; offline.</div>
    5. Hands you the finished video to download
  </div>
 </form>
-<div class="tag" style="margin-top:1.4rem;font-size:.8rem">Kreator only uses
-your own footage — it never generates or adds anything from outside.</div>
+<div class="tag" style="margin-top:1.4rem;font-size:.8rem">Kreator never
+generates anything: the video is 100% your own footage, plus at most a
+free-to-use music bed from your own K Library.</div>
 </div></body></html>"""
 
 

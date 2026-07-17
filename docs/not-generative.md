@@ -23,15 +23,16 @@ to **describe** the real footage so the deterministic Planner can decide how to
 cut it. They never generate output content. *The AI describes; the Planner
 decides; the footage is the creator's.*
 
-## The one allowed addition: free-to-use assets (planned, opt-in)
+## The one allowed addition: free-to-use assets (opt-in)
 
-Real editors add music, sound effects, and memes. Kreator will support this too
-— but only from a **K Library of licensed / free-to-use assets**, added
-deliberately on the user's request (e.g. "put tense music under the shootout"),
-never generated and never scraped from someone else's work. This is a *future*
-capability; when built, it stays inside this same rule: the *gameplay* is 100%
-the creator's, and any overlaid asset is a real, licensed file from the library
-— not something a model dreamed up.
+Real editors add music, sound effects, and memes. Kreator supports this — but
+only from a **K Library of licensed / free-to-use assets** the user added
+deliberately (`assets/`), never generated and never scraped from someone else's
+work. Today the Director can lay a background *music* bed from that library
+under an edit; sound effects and memes follow the same rule when their
+executors land. It all stays inside this same rule: the *gameplay* is 100% the
+creator's, and any overlaid asset is a real, licensed file from the library —
+not something a model dreamed up.
 
 ## Why it matters
 
