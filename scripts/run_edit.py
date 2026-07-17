@@ -44,6 +44,9 @@ def main() -> int:
                     help="never cut a boring gap shorter than this (seconds)")
     ap.add_argument("--speech", action="store_true",
                     help="transcribe dialogue (CPU Whisper) and keep talky moments")
+    ap.add_argument("--captions", action="store_true",
+                    help="with --speech + --aspect: burn word-by-word karaoke "
+                         "captions instead of plain subtitles")
     ap.add_argument("--whisper-model", default="base",
                     help="faster-whisper model size (tiny/base/small)")
     ap.add_argument("--vlm", action="store_true",
@@ -83,6 +86,7 @@ def main() -> int:
     if args.speech and not args.bundle:
         print("Transcribing dialogue (Whisper, CPU)…")
         segments = transcribe(args.video, model_size=args.whisper_model,
+                              word_timestamps=args.captions,
                               verbose=args.verbose)
         speech = presence_series(segments, bundle.times)
         talk_time = sum(s.end - s.start for s in segments)
@@ -146,6 +150,7 @@ def main() -> int:
                 args.video, [(s.span.start, s.span.end) for s in plan.segments])
         program = compose_program(
             plan, transcript=segments, subtitles=bool(segments),
+            captions=args.captions,
             height=args.height, aspect=args.aspect,
             reframe_strategy=args.reframe, focus_x=focus,
             rationale=[f"reframed to {args.aspect} via --aspect"])

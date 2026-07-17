@@ -91,7 +91,7 @@ def test_filtergraph_crops_per_cut_focus():
 
     prog = EditProgram(cuts=[Cut(0.0, 10.0), Cut(20.0, 30.0)],
                        reframe=Reframe("9:16", "crop", (0.3, 0.7)))
-    graph, _v, _a = _build_filtergraph(prog, has_audio=True, srt_path=None)
+    graph, _v, _a = _build_filtergraph(prog, has_audio=True, subs_path=None)
     assert "crop=w='trunc(min(iw,ih*9/16)/2)*2'" in graph
     assert "clip(iw*0.3000-ow/2,0,iw-ow)" in graph   # cut 1 follows its focus
     assert "clip(iw*0.7000-ow/2,0,iw-ow)" in graph   # cut 2 follows its own
@@ -102,7 +102,7 @@ def test_filtergraph_pad_strategy_adds_bars():
     from kreator.dsl.execute import _build_filtergraph
 
     prog = EditProgram(cuts=[Cut(0.0, 10.0)], reframe=Reframe("9:16", "pad"))
-    graph, _v, _a = _build_filtergraph(prog, has_audio=False, srt_path=None)
+    graph, _v, _a = _build_filtergraph(prog, has_audio=False, subs_path=None)
     assert "pad=w='trunc((max(iw,ih*9/16)+1)/2)*2'" in graph
     assert "crop=w=" not in graph
 
@@ -112,7 +112,7 @@ def test_filtergraph_without_reframe_unchanged():
     from kreator.dsl.execute import _build_filtergraph
 
     prog = EditProgram(cuts=[Cut(0.0, 10.0)])
-    graph, _v, _a = _build_filtergraph(prog, has_audio=True, srt_path=None)
+    graph, _v, _a = _build_filtergraph(prog, has_audio=True, subs_path=None)
     assert "crop=" not in graph and "pad=" not in graph
 
 

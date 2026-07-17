@@ -30,6 +30,10 @@ _GENRE_KEYWORDS: dict[str, tuple[str, ...]] = {
                "lap", "referee", "player kicks"),
     "urban": ("city", "casino", "store", "building", "downtown", "mall",
               "parking", "hallway", "room"),
+    "talking": ("person talking", "man speaking", "woman speaking",
+                "person sitting", "microphone", "webcam", "podcast",
+                "person in front of", "talking to the camera",
+                "close-up of a face", "interview"),
 }
 
 
@@ -66,11 +70,24 @@ EDITING_PRESETS: dict[str, dict] = {
     "balanced": {"target_keep": 0.40, "keep_dialogue": True, "min_cut": 4.0,
                  "zoom": True, "music": "upbeat",
                  "note": "sensible default"},
+    # Talking content (vlog/podcast/class): the edit is speech-driven — keep
+    # what was said, cut the dead air. target_keep is nominal; the plan comes
+    # from pause_cut_plan over the transcript, never cutting mid-sentence.
+    "talking": {"target_keep": 0.85, "keep_dialogue": True, "min_cut": 0.8,
+                "zoom": False, "music": None,
+                "note": "keeps the speech, cuts pauses and dead air"},
 }
 
 
-def detect_content(descriptions: list[str]) -> ContentProfile:
-    """Infer genre + preset from a list of VLM scene descriptions."""
+def detect_content(
+    descriptions: list[str], speech_ratio: float | None = None
+) -> ContentProfile:
+    """Infer genre + preset from VLM scene descriptions.
+
+    ``speech_ratio`` (spoken time / duration, when a transcript exists) lets
+    the Director recognize *talking* content — a vlog or podcast is defined by
+    someone talking most of the time, which descriptions alone can miss.
+    """
     text = " ".join(descriptions).lower()
     scores = {
         genre: sum(text.count(kw) for kw in kws)
@@ -82,6 +99,16 @@ def detect_content(descriptions: list[str]) -> ContentProfile:
     combat = scores["combat"]
     driving = scores["driving"]
     sports = scores["sports"]
+
+    # Talking content: mostly speech, or clear talking-head visuals with
+    # meaningful speech coverage and no stronger game signal.
+    game_signal = heist + combat + driving + sports
+    if speech_ratio is not None and (
+        speech_ratio >= 0.7
+        or (speech_ratio >= 0.45 and scores["talking"] >= 1 and game_signal == 0)
+    ):
+        return ContentProfile("talking", "Talking / vlog content",
+                              tags, preset="talking")
 
     # GTA-style heist/mission: heist cues present, alongside city + driving.
     if heist >= 2 and (scores["urban"] or driving):

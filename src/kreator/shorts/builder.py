@@ -1,0 +1,153 @@
+"""Build renderable Shorts from ranked candidates.
+
+Pure parts (``fit_span``, ``build_short_program``) are testable with no video;
+``make_shorts`` is the driver that runs the real pipeline end to end.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+from ..dsl import (EditProgram, Cut, captions_from_transcript, execute_program,
+                   subtitles_from_transcript)
+from ..dsl.program import Reframe
+from ..types import Timespan
+
+
+@dataclass(frozen=True)
+class ShortSpec:
+    """How to shape each Short."""
+    min_len: float = 15.0     # a Short below this doesn't read as a moment
+    max_len: float = 60.0     # platform ceiling for Shorts
+    aspect: str | None = "9:16"
+    height: int | None = 1080
+    subtitles: bool = True
+    karaoke: bool = True      # word-by-word captions when word timings exist
+
+
+def fit_span(span: Timespan, video_duration: float, spec: ShortSpec) -> Timespan:
+    """Fit a candidate span into ``[min_len, max_len]``, inside the video.
+
+    Too short → grow symmetrically around the center (context on both sides);
+    too long → trim symmetrically around the center (the trigger sits mid-span
+    by construction of the Analyst window). Always clamped to the video, and if
+    the video itself is shorter than ``min_len``, the whole video is the Short.
+    """
+    if video_duration <= spec.min_len:
+        return Timespan(0.0, video_duration)
+
+    start, end = span.start, span.end
+    if span.duration < spec.min_len:
+        need = (spec.min_len - span.duration) / 2.0
+        start, end = start - need, end + need
+    elif span.duration > spec.max_len:
+        excess = (span.duration - spec.max_len) / 2.0
+        start, end = start + excess, end - excess
+
+    # Clamp while preserving the fitted length where possible.
+    if start < 0.0:
+        end = min(end - start, video_duration)
+        start = 0.0
+    if end > video_duration:
+        start = max(0.0, start - (end - video_duration))
+        end = video_duration
+    return Timespan(start, end)
+
+
+def build_short_program(
+    span: Timespan,
+    spec: ShortSpec,
+    *,
+    focus_x: float = 0.5,
+    transcript: list | None = None,
+    rationale: list[str] | None = None,
+) -> EditProgram:
+    """One candidate → one EditProgram: a single cut, reframed and captioned."""
+    cuts = [Cut(span.start, span.end, reason="ranked moment fitted to Short length")]
+    caps = (captions_from_transcript(transcript, cuts, reason="spoken dialogue")
+            if spec.karaoke and spec.subtitles and transcript else [])
+    subs = (subtitles_from_transcript(transcript, cuts, reason="spoken dialogue")
+            if spec.subtitles and transcript and not caps else [])
+    reframe = None
+    if spec.aspect:
+        reframe = Reframe(aspect=spec.aspect, strategy="crop", focus_x=(focus_x,),
+                          reason=f"reframed to {spec.aspect} following the action")
+    return EditProgram(cuts=cuts, subtitles=subs, captions=caps, reframe=reframe,
+                       height=spec.height, rationale=list(rationale or []))
+
+
+def make_shorts(
+    video_path: str,
+    out_dir: str,
+    *,
+    top_n: int = 5,
+    spec: ShortSpec | None = None,
+    transcript: list | None = None,
+    bundle=None,
+    provenance_log: str | None = None,
+    progress=lambda s: None,
+) -> dict:
+    """Rank the video's moments and render each of the top-N as a Short.
+
+    Returns a manifest dict (also written to ``out_dir/shorts.json``): one entry
+    per Short with its file, source span, score, rationale, and validation.
+    ``bundle`` lets a caller reuse an existing signal analysis; ``transcript``
+    (source-time SpeechSegments) enables burned captions.
+    """
+    from ..evidence import KAnalyst
+    from ..planner import KClipper
+    from ..reframe import cut_focus_centers
+    from ..signal_layer import analyze_video
+    from ..validator import validate_render
+
+    spec = spec or ShortSpec()
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    if bundle is None:
+        progress("Analyzing video (motion, audio, scenes)…")
+        bundle = analyze_video(video_path)
+    has_audio = any(a > 0.0 for a in bundle.audio)
+
+    progress("Ranking the best moments…")
+    evidences = KAnalyst().analyze(bundle, video_path=video_path)
+    candidates = KClipper().rank(evidences, top_n=top_n)
+
+    fitted = [fit_span(c.span, bundle.duration, spec) for c in candidates]
+    focus = [0.5] * len(fitted)
+    if spec.aspect:
+        progress("Finding the action's focus in each moment…")
+        focus = cut_focus_centers(video_path, [(s.start, s.end) for s in fitted])
+
+    entries = []
+    for i, (cand, span) in enumerate(zip(candidates, fitted), start=1):
+        progress(f"Rendering Short {i}/{len(candidates)}…")
+        program = build_short_program(
+            span, spec, focus_x=focus[i - 1], transcript=transcript,
+            rationale=[f"Rank #{cand.rank}: {cand.rationale}"])
+        dest = str(out / f"short_{i:02d}.mp4")
+        execute_program(video_path, program, dest, has_audio=has_audio)
+        report = validate_render(dest, program, has_audio=has_audio)
+        if provenance_log:
+            from ..provenance import record_render
+            record_render(provenance_log, source_video=video_path,
+                          output_path=dest, program=program.to_dict())
+        entries.append({
+            "file": Path(dest).name,
+            "rank": cand.rank,
+            "score": cand.score,
+            "source_span": {"start": round(span.start, 2), "end": round(span.end, 2)},
+            "duration": round(span.duration, 2),
+            "rationale": cand.rationale,
+            "subtitles": len(program.subtitles),
+            "captions": len(program.captions),
+            "aspect": spec.aspect,
+            "validation": report.to_dict(),
+        })
+
+    manifest = {"video": video_path, "top_n": top_n, "shorts": entries}
+    (out / "shorts.json").write_text(json.dumps(manifest, indent=2),
+                                     encoding="utf-8")
+    return manifest

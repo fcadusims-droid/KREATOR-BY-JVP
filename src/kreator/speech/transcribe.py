@@ -17,17 +17,33 @@ _MODEL_CACHE: dict[str, object] = {}
 
 
 @dataclass(frozen=True)
-class SpeechSegment:
+class Word:
+    """One spoken word with its own timestamps — what karaoke captions need."""
     start: float
     end: float
     text: str
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        return {"start": round(self.start, 2), "end": round(self.end, 2),
+                "text": self.text.strip()}
+
+
+@dataclass(frozen=True)
+class SpeechSegment:
+    start: float
+    end: float
+    text: str
+    words: tuple[Word, ...] = ()   # per-word timing when transcribed with it
+
+    def to_dict(self) -> dict[str, object]:
+        d: dict[str, object] = {
             "start": round(self.start, 2),
             "end": round(self.end, 2),
             "text": self.text.strip(),
         }
+        if self.words:
+            d["words"] = [w.to_dict() for w in self.words]
+        return d
 
 
 def _extract_wav(video_path: str) -> str:
@@ -57,22 +73,30 @@ def _model(model_size: str):  # pragma: no cover - loads weights
 
 
 def transcribe(
-    video_path: str, *, model_size: str = "base", verbose: bool = False
+    video_path: str, *, model_size: str = "base", word_timestamps: bool = False,
+    verbose: bool = False
 ) -> list[SpeechSegment]:
     """Transcribe speech in ``video_path``. Returns time-stamped segments.
 
     ``vad_filter`` is on so gunfire, music, and engine noise are not mistaken
-    for speech — important for gameplay audio.
+    for speech — important for gameplay audio. ``word_timestamps`` also times
+    each word (slower), which is what animated karaoke captions need.
     """
     wav = _extract_wav(video_path)
     try:
         model = _model(model_size)
-        segments, info = model.transcribe(wav, vad_filter=True)
-        out = [
-            SpeechSegment(float(s.start), float(s.end), s.text)
-            for s in segments
-            if s.text and s.text.strip()
-        ]
+        segments, info = model.transcribe(wav, vad_filter=True,
+                                          word_timestamps=word_timestamps)
+        out = []
+        for s in segments:
+            if not (s.text and s.text.strip()):
+                continue
+            words = tuple(
+                Word(float(w.start), float(w.end), w.word.strip())
+                for w in (s.words or [])
+                if w.word and w.word.strip()
+            ) if word_timestamps else ()
+            out.append(SpeechSegment(float(s.start), float(s.end), s.text, words))
         if verbose:
             print(f"[asr] {info.language}: {len(out)} speech segments")
         return out

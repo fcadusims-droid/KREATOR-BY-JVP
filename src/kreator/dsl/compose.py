@@ -8,7 +8,9 @@ background music bed from the K Library — each executed by the DSL runner.
 
 from __future__ import annotations
 
-from .program import Cut, EditProgram, Music, Reframe, Transition, Zoom
+from .captions import captions_from_transcript
+from .program import (CaptionStyle, Cut, EditProgram, Music, Reframe,
+                      Transition, Zoom)
 from .timeline import subtitles_from_transcript
 
 # A segment this interesting gets a subtle punch-in.
@@ -31,6 +33,8 @@ def compose_program(
     *,
     transcript: list | None = None,
     subtitles: bool = False,
+    captions: bool = False,
+    caption_style: CaptionStyle | None = None,
     zoom: bool = False,
     transitions: bool = False,
     music_track: str | None = None,
@@ -57,8 +61,12 @@ def compose_program(
         Cut(s.span.start, s.span.end, reason=_cut_reason(s.mean_interest))
         for s in plan.segments
     ]
+    # Karaoke captions need word timings; segments without them fall back to
+    # plain subtitles (the executor burns one subtitle track, so it's either).
+    caps = (captions_from_transcript(transcript, cuts, reason="spoken dialogue")
+            if captions and transcript else [])
     subs = (subtitles_from_transcript(transcript, cuts, reason="spoken dialogue")
-            if subtitles and transcript else [])
+            if (subtitles or captions) and transcript and not caps else [])
 
     zooms: list[Zoom] = []
     if zoom:
@@ -71,7 +79,7 @@ def compose_program(
             elapsed += dur
 
     trans: list[Transition] = []
-    if transitions and not subs and len(cuts) > 1:
+    if transitions and not subs and not caps and len(cuts) > 1:
         elapsed = 0.0
         for c in cuts[:-1]:
             elapsed += c.duration
@@ -92,6 +100,8 @@ def compose_program(
         reframe = Reframe(aspect=aspect, strategy=reframe_strategy, focus_x=fx,
                           reason=f"reframed to {aspect} ({how})")
 
-    return EditProgram(cuts=cuts, subtitles=subs, zooms=zooms, transitions=trans,
+    return EditProgram(cuts=cuts, subtitles=subs, captions=caps,
+                       caption_style=caption_style if caps else None,
+                       zooms=zooms, transitions=trans,
                        music=music, reframe=reframe, height=height,
                        rationale=list(rationale or []))

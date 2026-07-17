@@ -120,12 +120,12 @@ def test_render_filtergraph_scales_to_height():
 
     # No height → keep source, no scale step.
     graph, vlabel, _a = _build_filtergraph(
-        EditProgram(cuts=[Cut(10.0, 20.0)]), has_audio=True, srt_path=None)
+        EditProgram(cuts=[Cut(10.0, 20.0)]), has_audio=True, subs_path=None)
     assert vlabel == "cv" and "scale" not in graph
     # 720 → scale filter present, map the scaled label.
     graph, vlabel, _a = _build_filtergraph(
         EditProgram(cuts=[Cut(10.0, 20.0)], height=720),
-        has_audio=True, srt_path=None)
+        has_audio=True, subs_path=None)
     assert "scale=-2:720" in graph and vlabel == "outs"
 
 

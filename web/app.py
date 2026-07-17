@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Kreator web frontend — autonomous edit.
+"""Kreator web frontend — autonomous by default, guided when you want it.
 
-Upload a gameplay video and Kreator does the rest with **no options**: it looks
-at the footage, works out what kind of game it is, picks an editing style for
-that genre, and hands back a finished MP4 to download. Everything runs locally
-and offline — no GPU, no API.
+Upload a video and Kreator edits it on its own (recognizes the content, picks
+a style, cuts, captions). Optionally, guide it: ask for vertical Shorts, set
+the cut intensity, choose the caption style — or just *type what you want* in
+plain language and the deterministic parser fills the same form. One upload can
+produce several deliverables (the full edit + N Shorts) from a single analysis.
+Everything runs locally and offline — no GPU, no API.
 
     python web/app.py            # then open the forwarded port (5000)
-
-Processing is slow (the scene-understanding VLM especially), so each upload is a
-background job with a live status page that polls until the download is ready.
 """
 
 from __future__ import annotations
@@ -27,8 +26,7 @@ from flask import (Flask, jsonify, redirect, render_template_string,
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from kreator.director import autonomous_edit  # noqa: E402
-from kreator.types import format_tc  # noqa: E402
+from kreator.director import JobRequest, parse_instruction, run_job  # noqa: E402
 from kreator.vlm.backends import LocalVLMBackend  # noqa: E402
 
 app = Flask(__name__)
@@ -36,43 +34,58 @@ app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024  # 4 GB uploads
 
 WORK = ROOT / "web" / "_work"
 WORK.mkdir(parents=True, exist_ok=True)
+CACHE = WORK / "_cache"   # analysis cache shared across jobs
 
 # Optional K Library directory (real, free-to-use assets the user dropped in).
-# If set, the Director may lay a background music bed under the edit.
 LIBRARY_ROOT = os.environ.get("KREATOR_LIBRARY") or None
 
 JOBS: dict[str, dict] = {}
 _VLM = None  # the VLM model, loaded once and reused across jobs
 
 
-def _process(job_id: str, video_path: Path) -> None:
+def _request_from_form(form) -> JobRequest:
+    """The guided form → a JobRequest. A typed instruction is parsed first and
+    the explicit controls override it."""
+    text = (form.get("instruction") or "").strip()
+    req = parse_instruction(text) if text else JobRequest()
+
+    if form.get("outputs") == "long":
+        req.long_edit, req.shorts = True, req.shorts if text else 0
+    elif form.get("outputs") == "shorts":
+        req.long_edit = False
+        req.shorts = req.shorts or 3
+    elif form.get("outputs") == "both":
+        req.long_edit = True
+        req.shorts = req.shorts or 3
+
+    n = form.get("shorts_count")
+    if n and n.isdigit() and int(n) > 0:
+        req.shorts = int(n)
+    if form.get("intensity") in ("light", "medium", "heavy"):
+        req.intensity = form["intensity"]
+    if form.get("captions") in ("auto", "none", "plain", "karaoke"):
+        req.captions = form["captions"]
+    if form.get("aspect") in ("9:16", "1:1"):
+        req.aspect = form["aspect"]
+    return req
+
+
+def _process(job_id: str, video_path: Path, req: JobRequest) -> None:
     job = JOBS[job_id]
     try:
         global _VLM
         if _VLM is None:
             _VLM = LocalVLMBackend()
-        out_path = WORK / f"{job_id}.edited.mp4"
+        out_dir = WORK / job_id
 
         def progress(stage: str) -> None:
             job["stage"] = stage
 
-        result = autonomous_edit(str(video_path), str(out_path),
-                                 library_root=LIBRARY_ROOT,
-                                 progress=progress, vlm_backend=_VLM)
-        job["result"] = {
-            "label": result["label"],
-            "preset_note": result["preset_note"],
-            "original": format_tc(result["original_duration"]),
-            "edited": format_tc(result["kept_duration"]),
-            "keep_pct": round(result["keep_ratio"] * 100),
-            "segments": result["segments"],
-            "subtitles": result.get("subtitles", 0),
-            "zooms": result.get("zooms", 0),
-            "music": result.get("music", 0),
-            "rationale": result.get("rationale", []),
-            "scenes": len(result["scenes"]),
-        }
-        job["out"] = result["out"]
+        manifest = run_job(str(video_path), str(out_dir), req,
+                           library_root=LIBRARY_ROOT, vlm_backend=_VLM,
+                           cache_dir=str(CACHE), progress=progress)
+        job["result"] = manifest
+        job["dir"] = str(out_dir)
         job["stage"] = "done"
     except Exception as exc:
         job["stage"] = "error"
@@ -83,41 +96,73 @@ def _process(job_id: str, video_path: Path) -> None:
 
 INDEX_HTML = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kreator — edit your gameplay</title>
+<title>Kreator — edit your video</title>
 <style>
  :root{color-scheme:dark}
  body{font-family:system-ui,sans-serif;background:#0e0f13;color:#e7e9ee;margin:0;
       padding:2.5rem 1rem;display:flex;justify-content:center}
- .card{width:100%;max-width:520px;text-align:center}
+ .card{width:100%;max-width:560px;text-align:center}
  h1{font-size:1.9rem;margin:.2rem 0}
- .tag{color:#8b93a7;margin:.6rem 0 2rem;line-height:1.5}
- form{background:#171922;border:1px solid #262a36;border-radius:14px;padding:1.8rem}
+ .tag{color:#8b93a7;margin:.6rem 0 1.6rem;line-height:1.5}
+ form{background:#171922;border:1px solid #262a36;border-radius:14px;padding:1.6rem;text-align:left}
  input[type=file]{width:100%;padding:.9rem;background:#0e0f13;color:#e7e9ee;
-      border:1px dashed #394054;border-radius:10px;margin-bottom:1.2rem}
+      border:1px dashed #394054;border-radius:10px;margin-bottom:1rem;box-sizing:border-box}
+ textarea{width:100%;min-height:52px;background:#0e0f13;color:#e7e9ee;border:1px solid #394054;
+      border-radius:10px;padding:.7rem;box-sizing:border-box;font-family:inherit}
+ label{font-size:.82rem;color:#9aa3b2;display:block;margin:.7rem 0 .25rem}
+ select,input[type=number]{width:100%;padding:.55rem;background:#0e0f13;color:#e7e9ee;
+      border:1px solid #394054;border-radius:8px;box-sizing:border-box}
+ .row{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
  button{width:100%;padding:.95rem;font-size:1.05rem;font-weight:800;background:#3b82f6;
-      color:#fff;border:0;border-radius:10px;cursor:pointer}
+      color:#fff;border:0;border-radius:10px;cursor:pointer;margin-top:1.1rem}
  button:hover{background:#2f6fe0}
- .steps{margin-top:1.4rem;color:#6b7280;font-size:.85rem;line-height:1.7;text-align:left}
- .steps b{color:#9aa3b2}
+ details{margin-top:.9rem;color:#9aa3b2}
+ summary{cursor:pointer;font-size:.9rem}
 </style></head><body><div class="card">
 <h1>🎬 Kreator</h1>
-<div class="tag">Upload your gameplay. Kreator watches it, understands what game
-it is, and edits it on its own — cutting the boring parts, keeping the action.
-No settings. Local &amp; offline.</div>
+<div class="tag">Upload your video. Kreator understands it and edits it on its
+own — or tell it what you want. Local &amp; offline.</div>
 <form method="post" action="/upload" enctype="multipart/form-data">
  <input type="file" name="video" accept="video/*" required>
+ <label>Tell Kreator what you want (optional — plain language, pt/en)</label>
+ <textarea name="instruction" placeholder="ex.: faz 3 shorts de ~30 segundos com legenda animada, sem música"></textarea>
+ <details><summary>Guided options</summary>
+  <div class="row">
+   <div><label>Deliverables</label>
+    <select name="outputs">
+     <option value="">Auto</option>
+     <option value="long">Full edit</option>
+     <option value="shorts">Shorts only</option>
+     <option value="both">Full edit + Shorts</option>
+    </select></div>
+   <div><label>How many Shorts</label>
+    <input type="number" name="shorts_count" min="0" max="10" placeholder="auto"></div>
+   <div><label>Cut intensity</label>
+    <select name="intensity">
+     <option value="">Auto (by content)</option>
+     <option value="light">Light — keep more</option>
+     <option value="medium">Medium</option>
+     <option value="heavy">Heavy — tight cut</option>
+    </select></div>
+   <div><label>Captions</label>
+    <select name="captions">
+     <option value="">Auto</option>
+     <option value="karaoke">Animated (word-by-word)</option>
+     <option value="plain">Plain</option>
+     <option value="none">None</option>
+    </select></div>
+   <div><label>Full-edit aspect</label>
+    <select name="aspect">
+     <option value="">Keep source</option>
+     <option value="9:16">Vertical 9:16</option>
+     <option value="1:1">Square 1:1</option>
+    </select></div>
+  </div>
+ </details>
  <button type="submit">Edit my video →</button>
- <div class="steps">
-   <b>What it does, on its own:</b><br>
-   1. Analyzes motion, audio and scenes<br>
-   2. Recognizes the game/genre from what it sees<br>
-   3. Picks an editing style that fits<br>
-   4. Cuts the boring parts, keeps the action &amp; dialogue<br>
-   5. Hands you the finished video to download
- </div>
 </form>
 <div class="tag" style="margin-top:1.4rem;font-size:.8rem">Kreator never
-generates anything: the video is 100% your own footage, plus at most a
+generates anything: every deliverable is 100% your own footage, plus at most a
 free-to-use music bed from your own K Library.</div>
 </div></body></html>"""
 
@@ -129,7 +174,7 @@ JOB_HTML = """<!doctype html><html><head><meta charset="utf-8">
  :root{color-scheme:dark}
  body{font-family:system-ui,sans-serif;background:#0e0f13;color:#e7e9ee;margin:0;
       padding:2.5rem 1rem;display:flex;justify-content:center}
- .card{width:100%;max-width:520px;background:#171922;border:1px solid #262a36;
+ .card{width:100%;max-width:560px;background:#171922;border:1px solid #262a36;
       border-radius:14px;padding:1.8rem}
  h1{font-size:1.4rem;margin:.2rem 0 1.2rem}
  .stage{font-size:1.08rem;margin:1rem 0}
@@ -139,8 +184,9 @@ JOB_HTML = """<!doctype html><html><head><meta charset="utf-8">
  .stat{color:#8b93a7;font-size:.92rem;margin:.3rem 0}
  .note{color:#9aa3b2;font-size:.88rem;margin:.4rem 0 0}
  ul.why{text-align:left;color:#9aa3b2;font-size:.86rem;margin:.6rem 0;padding-left:1.1rem;line-height:1.5}
- a.dl{display:inline-block;margin-top:1.3rem;padding:.85rem 1.5rem;background:#22c55e;
+ .dl{display:block;margin-top:.6rem;padding:.75rem 1rem;background:#22c55e;
       color:#06240f;font-weight:800;border-radius:10px;text-decoration:none}
+ .dl.short{background:#3b82f6;color:#fff}
  a.back{display:inline-block;margin-top:1rem;color:#8b93a7}
  .err{color:#f87171}
  .warn{color:#6b7280;font-size:.8rem;margin-top:1rem}
@@ -156,18 +202,27 @@ updates itself, you can leave it open.</div>
    const r=await fetch(`/job/${id}/status`); const j=await r.json();
    const b=document.getElementById('body');
    if(j.stage==='done'){
-     const s=j.result||{};
-     const why=(s.rationale||[]).map(r=>`<li>${r}</li>`).join('');
-     b.innerHTML=`<div class="stage">✅ Done!</div>
-       <div class="note">Kreator saw: <b>${s.label||''}</b></div>
-       ${why?`<ul class="why">${why}</ul>`:''}
-       <div class="stat" style="margin-top:.7rem">Original ${s.original} → edited ${s.edited}
-       (${s.keep_pct}% kept, ${s.segments} segments, ${s.scenes} scenes analyzed)</div>
-       ${s.subtitles?`<div class="stat">${s.subtitles} subtitles burned from the dialogue</div>`:''}
-       ${s.zooms?`<div class="stat">${s.zooms} punch-in zoom(s) on the action</div>`:''}
-       ${s.music?`<div class="stat">background music bed from the K Library</div>`:''}
-       <a class="dl" href="/job/${id}/download">⬇ Download edited video</a>`;
-     return;
+     const m=j.result||{}; const u=m.understanding||{};
+     let html=`<div class="stage">✅ Done!</div>
+       <div class="note">Kreator saw: <b>${u.label||''}</b> — ${u.preset_note||''}</div>`;
+     const reqNotes=(m.request&&m.request.notes)||[];
+     if(reqNotes.length) html+=`<ul class="why">${reqNotes.map(n=>`<li>${n}</li>`).join('')}</ul>`;
+     for(const d of (m.deliverables||[])){
+       if(d.kind==='long_edit'){
+         const why=(d.rationale||[]).map(r=>`<li>${r}</li>`).join('');
+         html+=`<div class="stat" style="margin-top:.8rem"><b>Full edit</b> —
+           ${Math.round((d.keep_ratio||0)*100)}% kept, ${d.segments} segments`+
+           (d.captions?`, ${d.captions} karaoke captions`:'')+
+           (d.subtitles?`, ${d.subtitles} subtitles`:'')+`</div>`+
+           (why?`<ul class="why">${why}</ul>`:'')+
+           `<a class="dl" href="/job/${id}/file/${d.file}">⬇ Download full edit</a>`;
+       } else {
+         html+=`<div class="stat" style="margin-top:.8rem"><b>Short #${d.rank}</b>
+           (${d.duration}s${d.aspect?', '+d.aspect:''}) — ${d.rationale||''}</div>
+           <a class="dl short" href="/job/${id}/file/${d.file}">⬇ ${d.file}</a>`;
+       }
+     }
+     b.innerHTML=html; return;
    }
    if(j.stage==='error'){
      b.innerHTML=`<div class="stage err">⚠ Something went wrong</div>
@@ -190,11 +245,13 @@ def upload():
     f = request.files.get("video")
     if not f or not f.filename:
         return redirect(url_for("index"))
+    req = _request_from_form(request.form)
     job_id = uuid.uuid4().hex[:12]
     src = WORK / f"{job_id}{Path(f.filename).suffix or '.mp4'}"
     f.save(src)
     JOBS[job_id] = {"stage": "queued", "created": time.time()}
-    threading.Thread(target=_process, args=(job_id, src), daemon=True).start()
+    threading.Thread(target=_process, args=(job_id, src, req),
+                     daemon=True).start()
     return redirect(url_for("job_page", job_id=job_id))
 
 
@@ -210,16 +267,19 @@ def job_status(job_id):
     job = JOBS.get(job_id)
     if not job:
         return jsonify({"stage": "error", "error": "unknown job"}), 404
-    return jsonify({k: v for k, v in job.items() if k != "out"})
+    return jsonify({k: v for k, v in job.items() if k != "dir"})
 
 
-@app.route("/job/<job_id>/download")
-def job_download(job_id):
+@app.route("/job/<job_id>/file/<name>")
+def job_file(job_id, name):
     job = JOBS.get(job_id)
-    if not job or job.get("stage") != "done" or not job.get("out"):
+    if not job or job.get("stage") != "done" or not job.get("dir"):
         return redirect(url_for("job_page", job_id=job_id))
-    return send_file(job["out"], as_attachment=True,
-                     download_name="kreator_edited.mp4")
+    # Only files inside this job's own directory are served.
+    path = (Path(job["dir"]) / name).resolve()
+    if path.parent != Path(job["dir"]).resolve() or not path.exists():
+        return jsonify({"error": "unknown file"}), 404
+    return send_file(path, as_attachment=True, download_name=name)
 
 
 if __name__ == "__main__":

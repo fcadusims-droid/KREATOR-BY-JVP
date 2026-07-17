@@ -38,11 +38,14 @@ click the 🌐 globe icon.)
 
 ## 3. Edit a video
 
-The Kreator page opens in a new tab. There are **no settings** — Kreator decides
-everything on its own:
+The Kreator page opens in a new tab. No settings are *required* — Kreator
+decides everything on its own — but you can guide it if you want:
 
-1. **Choose your gameplay video** (mp4/mov/mkv).
-2. Click **Edit my video →**.
+1. **Choose your video** (mp4/mov/mkv).
+2. Optionally **type what you want** in plain language ("faz 3 shorts de ~30
+   segundos com legenda animada") or open **Guided options** (deliverables,
+   Shorts count, cut intensity, captions, aspect).
+3. Click **Edit my video →**.
 
 Kreator then, by itself: analyzes the footage → recognizes the game/genre from
 what it sees → picks an editing style that fits → cuts the boring parts, keeping
@@ -50,7 +53,8 @@ the action and dialogue → renders the result.
 
 A progress page shows each stage live (this takes several minutes — the
 scene-understanding step is the slow part). When it's done it shows what Kreator
-recognized and a **⬇ Download edited video** button.
+recognized, why it edited the way it did, and a **⬇ download button per
+deliverable** (the full edit, each Short).
 
 *(Prefer manual control over quality/how-much-to-keep? Use the command line —
 see the bottom of this guide.)*
