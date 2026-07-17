@@ -44,7 +44,7 @@ class Subtitle:
 
 @dataclass(frozen=True)
 class Zoom:
-    """A punch-in over an edited-timeline range (executor: future)."""
+    """A punch-in over an edited-timeline range."""
     start: float
     end: float
     scale: float = 1.15
@@ -56,7 +56,7 @@ class Zoom:
 
 @dataclass(frozen=True)
 class Transition:
-    """A transition at an edited-timeline instant (executor: future)."""
+    """A transition at an edited-timeline instant."""
     at: float
     kind: str = "crossfade"
     duration: float = 0.4
@@ -68,7 +68,7 @@ class Transition:
 
 @dataclass(frozen=True)
 class Music:
-    """Background track from the K Library (needs the asset library — future)."""
+    """A background track — a real, free-to-use file from the K Library."""
     track: str
     start: float
     end: float
@@ -80,8 +80,29 @@ class Music:
 
 
 @dataclass(frozen=True)
+class Reframe:
+    """Reframe the whole edit to another aspect ratio (e.g. 9:16 Shorts).
+
+    ``strategy`` is ``"crop"`` (select the window of real pixels that holds the
+    action) or ``"pad"`` (fit the full frame, neutral bars around it). With
+    ``crop``, ``focus_x`` gives one normalized horizontal center (0..1) per cut
+    — aligned by index with ``EditProgram.cuts``; empty means center every cut.
+    """
+    aspect: str = "9:16"
+    strategy: str = "crop"
+    focus_x: tuple[float, ...] = ()
+    reason: str = ""
+
+    def to_dict(self) -> dict:
+        return {"type": "reframe", "aspect": self.aspect,
+                "strategy": self.strategy,
+                "focus_x": [round(f, 3) for f in self.focus_x],
+                "reason": self.reason}
+
+
+@dataclass(frozen=True)
 class Broll:
-    """A licensed B-roll clip from the K Library (needs the library — future)."""
+    """A licensed B-roll clip from the K Library (executor: future)."""
     query: str
     start: float
     duration: float
@@ -105,6 +126,7 @@ class EditProgram:
     transitions: list[Transition] = field(default_factory=list)
     music: list[Music] = field(default_factory=list)
     broll: list[Broll] = field(default_factory=list)
+    reframe: Reframe | None = None
     height: int | None = None
     # High-level editorial decisions, in plain language — the "why" behind the
     # plan (e.g. "recognized GTA heist → mission preset → kept more").
@@ -126,5 +148,6 @@ class EditProgram:
                 + [t.to_dict() for t in self.transitions]
                 + [m.to_dict() for m in self.music]
                 + [b.to_dict() for b in self.broll]
+                + ([self.reframe.to_dict()] if self.reframe else [])
             ),
         }

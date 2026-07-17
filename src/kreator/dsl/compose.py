@@ -8,7 +8,7 @@ background music bed from the K Library — each executed by the DSL runner.
 
 from __future__ import annotations
 
-from .program import Cut, EditProgram, Music, Transition, Zoom
+from .program import Cut, EditProgram, Music, Reframe, Transition, Zoom
 from .timeline import subtitles_from_transcript
 
 # A segment this interesting gets a subtle punch-in.
@@ -36,12 +36,19 @@ def compose_program(
     music_track: str | None = None,
     music_volume: float = _MUSIC_VOLUME,
     height: int | None = None,
+    aspect: str | None = None,
+    reframe_strategy: str = "crop",
+    focus_x: list[float] | None = None,
     rationale: list[str] | None = None,
 ) -> EditProgram:
     """Build the program. ``plan`` is a ``kreator.editor.EditPlan``;
     ``transcript`` is a list of ``SpeechSegment`` (source time). ``rationale``
     is the Director's high-level decision log. ``music_track`` is a path to a
     real K Library asset to lay under the whole edit (or ``None`` for no music).
+
+    ``aspect`` (e.g. ``"9:16"``) attaches a Reframe: ``reframe_strategy`` is
+    ``"crop"`` or ``"pad"``, and ``focus_x`` gives one horizontal focus per
+    plan segment (from ``kreator.reframe.cut_focus_centers``; omitted → center).
 
     Note: ``transitions`` (crossfades) shorten the edited timeline, which would
     drift burned subtitle timing — so the two are not combined here.
@@ -77,5 +84,14 @@ def compose_program(
         edited_duration = sum(c.duration for c in cuts)
         music.append(Music(music_track, 0.0, edited_duration, music_volume))
 
+    reframe = None
+    if aspect:
+        fx = tuple(focus_x) if focus_x else ()
+        how = ("following the action" if reframe_strategy == "crop" and fx
+               else "fit with bars" if reframe_strategy == "pad" else "centered")
+        reframe = Reframe(aspect=aspect, strategy=reframe_strategy, focus_x=fx,
+                          reason=f"reframed to {aspect} ({how})")
+
     return EditProgram(cuts=cuts, subtitles=subs, zooms=zooms, transitions=trans,
-                       music=music, height=height, rationale=list(rationale or []))
+                       music=music, reframe=reframe, height=height,
+                       rationale=list(rationale or []))

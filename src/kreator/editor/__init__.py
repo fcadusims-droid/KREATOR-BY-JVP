@@ -14,10 +14,11 @@ vs. interesting?" — is answered here at the signal level and stated honestly:
 
 This is a *proxy*, not semantic understanding. It captures "action density,"
 which for no-commentary gameplay correlates well with what a viewer stays for.
-What it does **not** yet know is *why* something is interesting (a funny fail
-that isn't loud, a clever play). That is what the VLM refinement adds — see
-``kreator.editor.interest.semantic_boost`` and the backend hooks. The
-signal-only condenser runs today on CPU; the VLM layer plugs in on a GPU box.
+What it does **not** know by itself is *why* a quiet moment matters (a mission
+briefing, a scenic pause, story dialogue). That is what the rescue signals add:
+speech presence (``kreator.speech``) and VLM scene labels (``kreator.vlm``,
+local and CPU-only — see ``docs/vlm-without-gpu.md``) lift the interest floor
+via ``Condenser.plan(speech=…, visual_keep=…)`` so those stretches survive.
 """
 
 from .interest import interest_curve

@@ -3,39 +3,32 @@
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
-def _ffmpeg_bin() -> str:
-    found = shutil.which("ffmpeg")
-    if found:
-        return found
-    try:
-        import imageio_ffmpeg  # type: ignore
-
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:  # pragma: no cover
-        return "ffmpeg"
+from ..ffmpeg import ffmpeg_bin
 
 
 def _parse_probe(stderr: str) -> dict:
-    """Pull duration + stream presence out of ``ffmpeg -i`` output."""
+    """Pull duration, stream presence and dimensions out of ``ffmpeg -i`` output."""
     dur = 0.0
     m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
     if m:
         dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    # Two-plus digits per side so stream ids like "[0x1]" never match.
+    dims = re.search(r": Video:.*?(\d{2,5})x(\d{2,5})", stderr)
     return {
         "duration": dur,
         "has_video": bool(re.search(r"Stream #\d+:\d+.*: Video:", stderr)),
         "has_audio": bool(re.search(r"Stream #\d+:\d+.*: Audio:", stderr)),
+        "width": int(dims.group(1)) if dims else 0,
+        "height": int(dims.group(2)) if dims else 0,
     }
 
 
 def probe(video_path: str) -> dict:
-    proc = subprocess.run([_ffmpeg_bin(), "-i", video_path, "-hide_banner"],
+    proc = subprocess.run([ffmpeg_bin(), "-i", video_path, "-hide_banner"],
                           capture_output=True, text=True)
     return _parse_probe(proc.stderr)
 
@@ -52,11 +45,21 @@ class ValidationReport:
                 "expected": round(self.expected, 2), "issues": self.issues}
 
 
+def _aspect_ok(width: int, height: int, aspect: str, tol: float = 0.02) -> bool:
+    """Do the dimensions match ``aspect`` ("9:16") within ``tol``? The
+    tolerance absorbs the even-rounding the encoder forces on crop widths."""
+    if width <= 0 or height <= 0:
+        return False
+    aw, ah = aspect.split(":")
+    return abs(width / height - int(aw) / int(ah)) <= tol
+
+
 def validate_render(
     out_path: str, program, *, has_audio: bool, duration_tol: float = 1.5
 ) -> ValidationReport:
-    """Check the rendered file matches ``program``: exists, right streams, and
-    a duration close to the plan (accounting for crossfade shortening)."""
+    """Check the rendered file matches ``program``: exists, right streams, a
+    duration close to the plan (accounting for crossfade shortening), and —
+    when the program reframes — the target aspect ratio."""
     issues: list[str] = []
     p = Path(out_path)
     expected = program.edited_duration - sum(t.duration for t in program.transitions)
@@ -72,5 +75,9 @@ def validate_render(
     if abs(info["duration"] - expected) > duration_tol:
         issues.append(f"duration {info['duration']:.1f}s differs from the planned "
                       f"{expected:.1f}s")
+    reframe = getattr(program, "reframe", None)
+    if reframe and not _aspect_ok(info["width"], info["height"], reframe.aspect):
+        issues.append(f"output is {info['width']}x{info['height']}, not the "
+                      f"planned {reframe.aspect} aspect")
 
     return ValidationReport(not issues, info["duration"], expected, issues)
