@@ -43,6 +43,48 @@ class Subtitle:
 
 
 @dataclass(frozen=True)
+class Caption:
+    """A karaoke caption on the edited timeline: the creator's own words, each
+    timed, so the burned subtitle highlights word by word as it is spoken.
+    ``words`` is ``((start, end, text), …)`` in edited time."""
+    start: float
+    end: float
+    words: tuple[tuple[float, float, str], ...]
+    reason: str = ""
+
+    @property
+    def text(self) -> str:
+        return " ".join(w[2] for w in self.words)
+
+    def to_dict(self) -> dict:
+        return {"type": "caption", "start": round(self.start, 3),
+                "end": round(self.end, 3),
+                "words": [{"start": round(s, 3), "end": round(e, 3), "text": t}
+                          for s, e, t in self.words],
+                "reason": self.reason}
+
+
+@dataclass(frozen=True)
+class CaptionStyle:
+    """How burned karaoke captions look — the seed of the Editing Profile's
+    caption style. Colors are ASS ``&HAABBGGRR`` strings."""
+    font: str = "Arial"
+    size: int = 28                  # at 720-line PlayRes; libass scales with output
+    primary: str = "&H0000E5FF"     # already-sung words (yellow-ish)
+    upcoming: str = "&H00FFFFFF"    # not-yet-sung words (white)
+    outline: str = "&H00000000"
+    alignment: int = 2              # ASS numpad: 2 = bottom center, 5 = middle center
+    margin_v: int = 44
+    bold: bool = True
+
+    def to_dict(self) -> dict:
+        return {"font": self.font, "size": self.size, "primary": self.primary,
+                "upcoming": self.upcoming, "outline": self.outline,
+                "alignment": self.alignment, "margin_v": self.margin_v,
+                "bold": self.bold}
+
+
+@dataclass(frozen=True)
 class Zoom:
     """A punch-in over an edited-timeline range."""
     start: float
@@ -122,6 +164,8 @@ class EditProgram:
     """
     cuts: list[Cut] = field(default_factory=list)
     subtitles: list[Subtitle] = field(default_factory=list)
+    captions: list[Caption] = field(default_factory=list)   # karaoke (word-level)
+    caption_style: CaptionStyle | None = None
     zooms: list[Zoom] = field(default_factory=list)
     transitions: list[Transition] = field(default_factory=list)
     music: list[Music] = field(default_factory=list)
@@ -144,6 +188,7 @@ class EditProgram:
             "operations": (
                 [c.to_dict() for c in self.cuts]
                 + [s.to_dict() for s in self.subtitles]
+                + [c.to_dict() for c in self.captions]
                 + [z.to_dict() for z in self.zooms]
                 + [t.to_dict() for t in self.transitions]
                 + [m.to_dict() for m in self.music]

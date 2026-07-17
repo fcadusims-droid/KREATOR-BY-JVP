@@ -10,6 +10,7 @@ cut and reassembled. (See ``docs/not-generative.md``.)
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable
 
 from ..dsl import compose_program, execute_program
@@ -21,6 +22,40 @@ from ..validator import validate_render
 from ..vlm import label_keyframes, select_keyframes, visual_keep_series
 from ..vlm.backends import LocalVLMBackend
 from .content import EDITING_PRESETS, detect_content
+
+
+@dataclass
+class Understanding:
+    """Everything the Director learned about the upload — computed once and
+    shared by every deliverable of a job (long edit, Shorts, …)."""
+    bundle: object                 # SignalBundle
+    labels: list                   # SceneLabel per keyframe
+    visual: list[float]            # dense VLM keep signal
+    profile: object                # ContentProfile (genre → preset)
+    has_audio: bool
+
+
+def understand_video(
+    video_path: str,
+    *,
+    vlm_frames: int = 14,
+    vlm_backend=None,
+    progress: Callable[[str], None] = lambda s: None,
+) -> Understanding:
+    """Run the analysis half of the pipeline: signals → VLM scenes → genre."""
+    progress("Analyzing video (motion, audio, scenes)…")
+    bundle = analyze_video(video_path)
+    has_audio = any(a > 0.0 for a in bundle.audio)
+
+    progress("Understanding the scenes (local VLM)…")
+    backend = vlm_backend or LocalVLMBackend()
+    keyframes = select_keyframes(bundle, max_frames=vlm_frames)
+    labels = label_keyframes(video_path, keyframes, backend)
+    visual = visual_keep_series(labels, bundle.times)
+
+    profile = detect_content([lab.description for lab in labels])
+    progress(f"Recognized: {profile.label} → editing as '{profile.preset}'.")
+    return Understanding(bundle, labels, visual, profile, has_audio)
 
 
 def _pick_music(library_root, mood, has_audio):
@@ -49,19 +84,11 @@ def autonomous_edit(
     ``library_root``, if given, is a K Library directory the Director may pull a
     background music bed from (only real, free-to-use files the user added).
     """
-    progress("Analyzing video (motion, audio, scenes)…")
-    bundle = analyze_video(video_path)
-    has_audio = any(a > 0.0 for a in bundle.audio)
-
-    progress("Understanding the scenes (local VLM)…")
-    backend = vlm_backend or LocalVLMBackend()
-    keyframes = select_keyframes(bundle, max_frames=vlm_frames)
-    labels = label_keyframes(video_path, keyframes, backend)
-    visual = visual_keep_series(labels, bundle.times)
-
-    profile = detect_content([lab.description for lab in labels])
+    und = understand_video(video_path, vlm_frames=vlm_frames,
+                           vlm_backend=vlm_backend, progress=progress)
+    bundle, visual, profile = und.bundle, und.visual, und.profile
+    labels, has_audio = und.labels, und.has_audio
     preset = EDITING_PRESETS[profile.preset]
-    progress(f"Recognized: {profile.label} → editing as '{profile.preset}'.")
 
     segs = []
     speech = None

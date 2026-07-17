@@ -24,6 +24,7 @@ via ``Condenser.plan(speech=…, visual_keep=…)`` so those stretches survive.
 from .interest import interest_curve
 from .condenser import Condenser, EditPlan, KeepSegment
 from .render import render_segments
+from .silence import pause_cut_plan
 
 __all__ = [
     "interest_curve",
@@ -31,4 +32,5 @@ __all__ = [
     "EditPlan",
     "KeepSegment",
     "render_segments",
+    "pause_cut_plan",
 ]

@@ -10,6 +10,10 @@ testable without any model.
 """
 
 from .content import ContentProfile, EDITING_PRESETS, detect_content
-from .auto import autonomous_edit
+from .auto import Understanding, autonomous_edit, understand_video
+from .job import JobRequest, run_job
+from .instructions import parse_instruction
 
-__all__ = ["ContentProfile", "EDITING_PRESETS", "detect_content", "autonomous_edit"]
+__all__ = ["ContentProfile", "EDITING_PRESETS", "detect_content",
+           "autonomous_edit", "understand_video", "Understanding",
+           "JobRequest", "run_job", "parse_instruction"]

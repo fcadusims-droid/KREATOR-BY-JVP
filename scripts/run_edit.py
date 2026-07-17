@@ -44,8 +44,14 @@ def main() -> int:
                     help="never cut a boring gap shorter than this (seconds)")
     ap.add_argument("--speech", action="store_true",
                     help="transcribe dialogue (CPU Whisper) and keep talky moments")
+    ap.add_argument("--captions", action="store_true",
+                    help="with --speech + --aspect: burn word-by-word karaoke "
+                         "captions instead of plain subtitles")
     ap.add_argument("--whisper-model", default="base",
                     help="faster-whisper model size (tiny/base/small)")
+    ap.add_argument("--language", default=None,
+                    help="spoken-language ISO code (e.g. en, pt, es); "
+                         "default auto-detects")
     ap.add_argument("--vlm", action="store_true",
                     help="describe sampled keyframes with a local CPU VLM and keep "
                          "scenic/dialogue/action scenes (slow, offline, no GPU)")
@@ -83,7 +89,8 @@ def main() -> int:
     if args.speech and not args.bundle:
         print("Transcribing dialogue (Whisper, CPU)…")
         segments = transcribe(args.video, model_size=args.whisper_model,
-                              verbose=args.verbose)
+                              word_timestamps=args.captions,
+                              language=args.language, verbose=args.verbose)
         speech = presence_series(segments, bundle.times)
         talk_time = sum(s.end - s.start for s in segments)
         print(f"  {len(segments)} speech segments, {format_tc(talk_time)} of dialogue")
@@ -146,6 +153,7 @@ def main() -> int:
                 args.video, [(s.span.start, s.span.end) for s in plan.segments])
         program = compose_program(
             plan, transcript=segments, subtitles=bool(segments),
+            captions=args.captions,
             height=args.height, aspect=args.aspect,
             reframe_strategy=args.reframe, focus_x=focus,
             rationale=[f"reframed to {args.aspect} via --aspect"])

@@ -11,6 +11,6 @@ signal the editor uses) and *content* (the transcript, a stored artifact that
 later serves K Subtitle and K SEO).
 """
 
-from .transcribe import SpeechSegment, presence_series, transcribe
+from .transcribe import SpeechSegment, Word, presence_series, transcribe
 
-__all__ = ["SpeechSegment", "presence_series", "transcribe"]
+__all__ = ["SpeechSegment", "Word", "presence_series", "transcribe"]

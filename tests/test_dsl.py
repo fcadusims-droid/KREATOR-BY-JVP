@@ -89,7 +89,7 @@ def test_transitions_added_between_cuts_and_build_xfade():
             KeepSegment(Timespan(40.0, 50.0), 0.4)]
     prog = compose_program(EditPlan(segs, 60.0, 0.5), transitions=True)
     assert len(prog.transitions) == 2               # one per boundary
-    graph, _v, _a = _build_filtergraph(prog, has_audio=True, srt_path=None)
+    graph, _v, _a = _build_filtergraph(prog, has_audio=True, subs_path=None)
     assert "xfade" in graph and "acrossfade" in graph and "fps=30" in graph
 
 
@@ -103,7 +103,7 @@ def test_music_mix_in_filtergraph():
     plan = EditPlan([KeepSegment(Timespan(0.0, 10.0), 0.6)], 20.0, 0.5)
     prog = compose_program(plan)
     prog.music.append(Music("track.mp3", 0.0, 10.0, 0.2))
-    graph, _v, alabel = _build_filtergraph(prog, has_audio=True, srt_path=None)
+    graph, _v, alabel = _build_filtergraph(prog, has_audio=True, subs_path=None)
     assert "amix" in graph and "volume=0.2" in graph and alabel == "amx"
 
 

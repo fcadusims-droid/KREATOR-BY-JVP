@@ -97,7 +97,7 @@ def _crossfade_chain(parts: list, program: EditProgram, n: int, has_audio: bool)
             aprev = aout
 
 
-def _build_filtergraph(program: EditProgram, has_audio: bool, srt_path: str | None):
+def _build_filtergraph(program: EditProgram, has_audio: bool, subs_path: str | None):
     parts: list[str] = []
     labels: list[str] = []
     elapsed = 0.0
@@ -128,10 +128,14 @@ def _build_filtergraph(program: EditProgram, has_audio: bool, srt_path: str | No
         parts.append(f"{''.join(labels)}concat=n={n}:v=1:a=0[cv];")
 
     vlabel = "cv"
-    if srt_path:
-        style = ("FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-                 "BorderStyle=1,Outline=2,Shadow=0,Bold=1,Alignment=2,MarginV=28")
-        parts.append(f"[{vlabel}]subtitles='{srt_path}':force_style='{style}'[sv];")
+    if subs_path:
+        # A karaoke .ass carries its own style; a plain .srt gets the house one.
+        if subs_path.endswith(".ass"):
+            parts.append(f"[{vlabel}]subtitles='{subs_path}'[sv];")
+        else:
+            style = ("FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+                     "BorderStyle=1,Outline=2,Shadow=0,Bold=1,Alignment=2,MarginV=28")
+            parts.append(f"[{vlabel}]subtitles='{subs_path}':force_style='{style}'[sv];")
         vlabel = "sv"
     if program.height:
         parts.append(f"[{vlabel}]scale=-2:{int(program.height)}[outs];")
@@ -166,12 +170,17 @@ def execute_program(
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     tmp = tempfile.mkdtemp()
-    srt_path = None
-    if program.subtitles:
-        srt_path = str(Path(tmp) / "subs.srt")
-        write_srt(program.subtitles, srt_path)
+    subs_path = None
+    if program.captions:
+        from .captions import write_ass
 
-    graph, vlabel, alabel = _build_filtergraph(program, has_audio, srt_path)
+        subs_path = str(Path(tmp) / "subs.ass")
+        write_ass(program.captions, subs_path, style=program.caption_style)
+    elif program.subtitles:
+        subs_path = str(Path(tmp) / "subs.srt")
+        write_srt(program.subtitles, subs_path)
+
+    graph, vlabel, alabel = _build_filtergraph(program, has_audio, subs_path)
     script = str(Path(tmp) / "graph.txt")
     Path(script).write_text(graph, encoding="utf-8")
 
