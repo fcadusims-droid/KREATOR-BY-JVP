@@ -86,6 +86,7 @@ def make_shorts(
     spec: ShortSpec | None = None,
     transcript: list | None = None,
     bundle=None,
+    focus_profile: str = "follow",
     provenance_log: str | None = None,
     progress=lambda s: None,
 ) -> dict:
@@ -133,7 +134,9 @@ def make_shorts(
     focus = [0.5] * len(fitted)
     if spec.aspect:
         progress("Finding the action's focus in each moment…")
-        focus = cut_focus_centers(video_path, [(s.start, s.end) for s in fitted])
+        focus = cut_focus_centers(video_path,
+                                  [(s.start, s.end) for s in fitted],
+                                  profile=focus_profile)
 
     entries = []
     for i, (cand, span) in enumerate(zip(candidates, fitted), start=1):

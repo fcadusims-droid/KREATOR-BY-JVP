@@ -58,6 +58,39 @@ def test_center_of_mass_degrades_to_center():
     assert abs(center_of_mass([5.0, 5.0, 5.0, 5.0]) - 0.5) < 1e-9  # uniform pan
 
 
+def test_center_weighting_tames_edge_flicker():
+    from kreator.reframe import center_weighted
+
+    # A kill-feed-like flicker at the right edge over mild central action.
+    energies = [1.0] * 50 + [1.0] * 49 + [40.0]
+    raw = center_of_mass(energies)
+    weighted = center_of_mass(center_weighted(energies, 0.7))
+    assert raw > 0.6                       # raw energy chases the edge
+    assert abs(weighted - 0.5) < abs(raw - 0.5)   # the prior pulls it back
+    # Zero strength is a no-op.
+    assert center_weighted(energies, 0.0) == energies
+
+
+def test_clamp_focus_bounds_the_crop():
+    from kreator.reframe import clamp_focus
+
+    assert clamp_focus(0.9, 0.12) == 0.62
+    assert clamp_focus(0.1, 0.12) == 0.38
+    assert clamp_focus(0.52, 0.12) == 0.52         # inside → untouched
+
+
+def test_focus_profiles_exist_and_center_is_free():
+    from kreator.reframe import FOCUS_PROFILES, cut_focus_centers
+
+    assert set(FOCUS_PROFILES) == {"fps", "follow", "center"}
+    fps, follow = FOCUS_PROFILES["fps"], FOCUS_PROFILES["follow"]
+    assert fps["center_weight"] > follow["center_weight"]
+    assert fps["max_offset"] < follow["max_offset"]
+    # "center" never opens the video — a bogus path proves it.
+    assert cut_focus_centers("/nonexistent.mp4", [(0.0, 5.0)],
+                             profile="center") == [0.5]
+
+
 def test_compose_attaches_reframe_with_focus_and_reason():
     from kreator.dsl import compose_program
     from kreator.editor.condenser import EditPlan, KeepSegment

@@ -26,6 +26,10 @@ def main() -> int:
     ap.add_argument("--max-len", type=float, default=60.0, help="maximum Short length (s)")
     ap.add_argument("--aspect", default="9:16", choices=["9:16", "1:1", "16:9", "source"],
                     help="output aspect ('source' keeps the original)")
+    ap.add_argument("--focus", default="follow", choices=["fps", "follow", "center"],
+                    help="crop policy: 'fps' anchors near the crosshair "
+                         "(HUD-centered shooters), 'follow' tracks the action, "
+                         "'center' is a fixed center crop")
     ap.add_argument("--height", type=int, default=1080, choices=[480, 720, 1080])
     ap.add_argument("--speech", action="store_true",
                     help="transcribe dialogue and burn it as captions")
@@ -47,7 +51,8 @@ def main() -> int:
                      aspect=None if args.aspect == "source" else args.aspect,
                      height=args.height, subtitles=bool(transcript))
     manifest = make_shorts(args.video, args.out, top_n=args.top_n, spec=spec,
-                           transcript=transcript, progress=print)
+                           transcript=transcript, focus_profile=args.focus,
+                           progress=print)
 
     print(f"\n{len(manifest['shorts'])} Shorts in {args.out}:")
     for s in manifest["shorts"]:

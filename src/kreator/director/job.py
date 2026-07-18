@@ -31,6 +31,14 @@ from .content import EDITING_PRESETS, detect_content
 # How aggressively to condense, when the user picks instead of the preset.
 _KEEP_BY_INTENSITY = {"light": 0.55, "medium": 0.40, "heavy": 0.28}
 
+# Which crop policy fits which recognized content: HUD-centered shooters keep
+# the crosshair (center-anchored), everything else follows the action.
+_FOCUS_BY_GENRE = {"shooter": "fps"}
+
+
+def _focus_profile(profile) -> str:
+    return _FOCUS_BY_GENRE.get(profile.genre, "follow")
+
 
 @dataclass
 class JobRequest:
@@ -156,7 +164,8 @@ def _render_long_edit(
     if req.aspect:
         progress("Finding the action's focus for the reframe…")
         focus = cut_focus_centers(
-            video_path, [(s.span.start, s.span.end) for s in plan.segments])
+            video_path, [(s.span.start, s.span.end) for s in plan.segments],
+            profile=_focus_profile(und.profile))
 
     rationale = [
         f"Recognized {und.profile.label} → '{und.profile.preset}' preset: "
@@ -276,7 +285,8 @@ def run_job(
                          height=1080)
         shorts_manifest = make_shorts(
             video_path, str(out), top_n=req.shorts, spec=spec,
-            transcript=transcript, bundle=und.bundle, progress=progress,
+            transcript=transcript, bundle=und.bundle,
+            focus_profile=_focus_profile(und.profile), progress=progress,
             provenance_log=prov_log)
         for s in shorts_manifest["shorts"]:
             deliverables.append({"kind": "short", **s})
