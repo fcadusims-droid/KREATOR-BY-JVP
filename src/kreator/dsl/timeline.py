@@ -16,13 +16,15 @@ def source_to_edited(source_t: float, cuts: list[Cut]) -> float | None:
 
     Returns ``None`` if that moment was cut out. Cuts are consumed in order, so
     the edited position is the total kept duration before the containing cut,
-    plus the offset within it.
+    plus the offset within it — both measured in *edited* time, i.e. with each
+    cut's playback speed applied (a word spoken inside a 0.5× slow-mo lands
+    twice as far into that cut as it did in the source).
     """
     elapsed = 0.0
     for c in cuts:
         if c.source_start <= source_t < c.source_end:
-            return elapsed + (source_t - c.source_start)
-        elapsed += c.duration
+            return elapsed + (source_t - c.source_start) / c.speed
+        elapsed += c.edited_duration
     return None
 
 

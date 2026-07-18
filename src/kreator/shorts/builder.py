@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..dsl import (EditProgram, Cut, captions_from_transcript, execute_program,
+from ..dsl import (EditProgram, captions_from_transcript, execute_program,
                    subtitles_from_transcript)
 from ..dsl.program import Reframe
 from ..types import Timespan
@@ -25,6 +25,7 @@ class ShortSpec:
     height: int | None = 1080
     subtitles: bool = True
     karaoke: bool = True      # word-by-word captions when word timings exist
+    style: str = "montage"    # K Motion preset: montage|cinematic|clean|none
 
 
 def fit_span(span: Timespan, video_duration: float, spec: ShortSpec) -> Timespan:
@@ -62,20 +63,34 @@ def build_short_program(
     *,
     focus_x: float = 0.5,
     transcript: list | None = None,
+    events: list | None = None,
     rationale: list[str] | None = None,
 ) -> EditProgram:
-    """One candidate → one EditProgram: a single cut, reframed and captioned."""
-    cuts = [Cut(span.start, span.end, reason="ranked moment fitted to Short length")]
+    """One candidate → one EditProgram, with the K Motion treatment.
+
+    The cut spine, slow-mo split, zoom pulses, shake, and grade come from the
+    motion planner, keyframed on the clip's GameSense events; captions remap
+    correctly through the slow-mo (speed-aware timeline).
+    """
+    from ..motion import plan_motion
+
+    motion = plan_motion(span, events or [], style=spec.style)
+    cuts = motion.cuts
     caps = (captions_from_transcript(transcript, cuts, reason="spoken dialogue")
             if spec.karaoke and spec.subtitles and transcript else [])
     subs = (subtitles_from_transcript(transcript, cuts, reason="spoken dialogue")
             if spec.subtitles and transcript and not caps else [])
     reframe = None
     if spec.aspect:
-        reframe = Reframe(aspect=spec.aspect, strategy="crop", focus_x=(focus_x,),
+        # The split cuts are the same moment — one focus serves them all.
+        reframe = Reframe(aspect=spec.aspect, strategy="crop",
+                          focus_x=tuple(focus_x for _ in cuts),
                           reason=f"reframed to {spec.aspect} following the action")
-    return EditProgram(cuts=cuts, subtitles=subs, captions=caps, reframe=reframe,
-                       height=spec.height, rationale=list(rationale or []))
+    return EditProgram(cuts=cuts, subtitles=subs, captions=caps,
+                       punch_zooms=motion.punch_zooms, shakes=motion.shakes,
+                       grade=motion.grade, reframe=reframe,
+                       height=spec.height,
+                       rationale=list(rationale or []) + motion.rationale)
 
 
 def make_shorts(
@@ -167,7 +182,7 @@ def make_shorts(
         rationale = [f"Signal rank #{cand.rank}: {cand.rationale}"] + reasons
         program = build_short_program(
             span, spec, focus_x=focus[i - 1], transcript=transcript,
-            rationale=rationale)
+            events=window, rationale=rationale)
         dest = str(out / f"short_{i:02d}.mp4")
         execute_program(video_path, program, dest, has_audio=has_audio)
         report = validate_render(dest, program, has_audio=has_audio)

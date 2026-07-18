@@ -35,6 +35,13 @@ _KEEP_BY_INTENSITY = {"light": 0.55, "medium": 0.40, "heavy": 0.28}
 # the crosshair (center-anchored), everything else follows the action.
 _FOCUS_BY_GENRE = {"shooter": "fps"}
 
+# Which K Motion style fits which recognized content. Shooters get the
+# aggressive montage; open-world action reads better cinematic; story/mission
+# and talking content stay clean (the "you cut too much" feedback again).
+_STYLE_BY_GENRE = {"shooter": "montage", "action_gameplay": "cinematic",
+                   "driving": "cinematic", "sports": "cinematic",
+                   "gta_heist": "clean", "talking": "clean"}
+
 
 def _focus_profile(profile) -> str:
     return _FOCUS_BY_GENRE.get(profile.genre, "follow")
@@ -51,6 +58,7 @@ class JobRequest:
     captions: str = "auto"           # auto | none | plain | karaoke
     language: str | None = None      # spoken-language ISO code; None = detect
     intensity: str = "auto"          # auto | light | medium | heavy
+    style: str = "auto"              # K Motion: auto | montage | cinematic | clean | none
     height: int = 720
     music: bool = True
     min_short_len: float = 15.0
@@ -61,7 +69,7 @@ class JobRequest:
         return {"long_edit": self.long_edit, "shorts": self.shorts,
                 "thumbnails": self.thumbnails, "title_text": self.title_text,
                 "aspect": self.aspect, "captions": self.captions,
-                "language": self.language,
+                "language": self.language, "style": self.style,
                 "intensity": self.intensity, "height": self.height,
                 "music": self.music, "min_short_len": self.min_short_len,
                 "max_short_len": self.max_short_len, "notes": self.notes}
@@ -279,10 +287,12 @@ def run_job(
             library_root, progress, prov_log=prov_log))
 
     if req.shorts > 0:
+        style = (req.style if req.style != "auto"
+                 else _STYLE_BY_GENRE.get(und.profile.genre, "clean"))
         spec = ShortSpec(min_len=req.min_short_len, max_len=req.max_short_len,
                          subtitles=req.captions != "none",
                          karaoke=req.captions in ("auto", "karaoke"),
-                         height=1080)
+                         height=1080, style=style)
         shorts_manifest = make_shorts(
             video_path, str(out), top_n=req.shorts, spec=spec,
             transcript=transcript, bundle=und.bundle,
