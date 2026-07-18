@@ -49,7 +49,18 @@ OBJECTIVE = (
     "gol", "objetivo", "capturado", "plantada", "ultima volta", "última volta",
 )
 
+# Non-gameplay UI — menus, scoreboards, post-match screens. Text-dense, so
+# without this class the novelty detector would crown the results screen the
+# "most announced" moment of the match (observed on real footage).
+UI = (
+    "weapon stats", "best play", "scoreboard", "match results", "final score",
+    "play again", "play of the game replay", "lobby", "loadout", "settings",
+    "prestige", "battle pass", "store", "challenges", "after action report",
+    "estatisticas", "estatísticas", "placar", "resultado da partida",
+)
+
 _VOCAB: dict[str, tuple[str, ...]] = {
+    "ui": UI,                # first: a scoreboard's words must not score as play
     "multikill": MULTIKILL,
     "death": DEATH,          # before "kill": "killed by" must not read as a kill
     "kill": KILL,
@@ -72,4 +83,8 @@ def classify_text(text: str) -> list[str]:
     # "killed by" style hits match both DEATH and KILL vocab; death wins.
     if "death" in found and "kill" in found:
         found.remove("kill")
+    # A UI line is UI, full stop — a scoreboard saying "HARDPOINT" is not
+    # an objective being played.
+    if "ui" in found:
+        return ["ui"]
     return found

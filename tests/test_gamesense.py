@@ -72,6 +72,34 @@ def test_announcer_events_from_transcript_window():
     assert evs[0].kind == "multikill" and evs[0].source == "announcer"
 
 
+def test_long_announcer_segment_belongs_to_its_start_window():
+    # A 20s Whisper segment must not smear into windows it merely overlaps
+    # (observed on real footage: one sentence boosted three candidates).
+    seg = [SpeechSegment(1088.5, 1110.0, "personnel have captured the hardpoint")]
+    assert announcer_events(seg, Timespan(1085.0, 1100.0))      # starts here
+    assert announcer_events(seg, Timespan(1104.0, 1119.0)) == []  # overlap only
+
+
+def test_scoreboard_text_is_ui_not_gameplay():
+    assert classify_text("WEAPON STATS") == ["ui"]
+    assert classify_text("BEST PLAY") == ["ui"]
+    # Even when the line contains gameplay words: the results screen says
+    # "HARDPOINT" too, and it must not score as an objective being played.
+    assert classify_text("match results — hardpoint") == ["ui"]
+    delta, reasons = viral_adjustment(
+        [GameEvent(5.0, "ui", "hud", "WEAPON STATS")])
+    assert delta < 0 and any("not gameplay" in r for r in reasons)
+
+
+def test_ambient_announcer_objective_is_nearly_free():
+    hud, _ = viral_adjustment(
+        [GameEvent(5.0, "objective", "hud", "POINT CAPTURED", "middle-center")])
+    voice, _ = viral_adjustment(
+        [GameEvent(5.0, "objective", "announcer", "captured the hardpoint")])
+    assert hud == 0.20                 # a HUD banner is a real feat
+    assert voice <= 0.05               # match narration barely counts
+
+
 def test_reader_degrades_without_video():
     from kreator.gamesense import read_screen_events
     assert read_screen_events("x.mp4", []) == []   # no spans → no reads
