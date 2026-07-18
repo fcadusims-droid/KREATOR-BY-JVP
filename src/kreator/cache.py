@@ -15,7 +15,9 @@ import json
 from pathlib import Path
 
 # Bump when a stage's output shape or semantics change — old entries then miss.
-ANALYSIS_VERSION = "1"
+# v2: the audio series is now decoded via ffmpeg-extracted WAV (v1 bundles can
+# carry a silently empty audio track).
+ANALYSIS_VERSION = "2"
 
 _SAMPLE = 1024 * 1024  # hash the first+last MB, not the whole multi-GB file
 

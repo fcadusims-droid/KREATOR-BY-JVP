@@ -57,6 +57,15 @@ def test_build_short_program_subtitles_remapped_to_clip():
     assert prog.subtitles[0].text == "inside the clip"
 
 
+def test_fitted_overlap_is_deduped_like_make_shorts():
+    # Two moments 8s apart don't overlap as raw 10s windows, but fitted to
+    # 15s they cover nearly the same footage — the pipeline must keep one.
+    a = fit_span(Timespan(1130.0, 1140.0), 2200.0, SPEC)
+    b = fit_span(Timespan(1138.0, 1148.0), 2200.0, SPEC)
+    overlap = a.intersection(b) / a.duration
+    assert overlap > 0.35         # the condition make_shorts filters on
+
+
 def test_build_short_program_source_aspect_keeps_no_reframe():
     spec = ShortSpec(aspect=None)
     prog = build_short_program(Timespan(0.0, 20.0), spec)
