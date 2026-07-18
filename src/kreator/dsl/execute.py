@@ -74,6 +74,59 @@ def _reframe_chain(program: EditProgram, cut_index: int) -> str:
             f":x='clip(iw*{fx:.4f}-ow/2,0,iw-ow)':y='(ih-oh)/2'")
 
 
+def _atempo_chain(speed: float) -> str:
+    """An atempo filter chain for ``speed`` (atempo only accepts 0.5–100 per
+    stage, so extreme slow-mo chains stages)."""
+    if speed == 1.0:
+        return ""
+    parts = []
+    remaining = speed
+    while remaining < 0.5:
+        parts.append("atempo=0.5")
+        remaining /= 0.5
+    parts.append(f"atempo={remaining:g}")
+    return "," + ",".join(parts)
+
+
+# Named color treatments — deterministic filter chains, a LUT's job done
+# programmatically on real pixels.
+_GRADES = {
+    "vivid": "eq=contrast=1.08:saturation=1.25:brightness=0.01",
+    "cinematic": ("eq=contrast=1.12:saturation=0.92,"
+                  "colorbalance=bs=0.06:ms=0.02:hs=-0.04"),
+    "punchy": "eq=contrast=1.15:saturation=1.35:gamma=0.98",
+}
+
+
+def _punch_zoom_chain(program: EditProgram, dims) -> str:
+    """A zoompan whose zoom is a sum of exponential pulses, one per
+    PunchZoom — snaps to peak at the event frame and eases out. Runs on the
+    concatenated (post-reframe) stream, so ``dims`` are its dimensions."""
+    if not program.punch_zooms:
+        return ""
+    pulses = "+".join(
+        f"{p.amount}*exp(-abs(in-{p.at * 30:.0f})/{max(p.width, 0.1) * 15:.1f})"
+        for p in program.punch_zooms)
+    w, h = dims
+    return (f",zoompan=z='1+{pulses}'"
+            f":d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+            f":s={w}x{h}:fps=30")
+
+
+def _shake_chain(program: EditProgram) -> str:
+    """Slight upscale + crop-window jitter inside each Shake window. The
+    incommensurate sin/cos frequencies read as impact, not oscillation."""
+    if not program.shakes:
+        return ""
+    jx = "+".join(f"between(t,{s.start:.3f},{s.end:.3f})*{s.amplitude:g}*sin(53*t)"
+                  for s in program.shakes)
+    jy = "+".join(f"between(t,{s.start:.3f},{s.end:.3f})*{s.amplitude * 0.75:g}*cos(41*t)"
+                  for s in program.shakes)
+    return (",scale=iw*1.06:ih*1.06"
+            ",crop=w='trunc(iw/1.06/2)*2':h='trunc(ih/1.06/2)*2'"
+            f":x='(iw-ow)/2+{jx}':y='(ih-oh)/2+{jy}'")
+
+
 def _input_map(program: EditProgram, has_audio: bool):
     """Assign an FFmpeg input index to every extra media file the program
     needs, in a fixed order (music, sfx…, broll…). The command builder and the
@@ -119,7 +172,7 @@ def _crossfade_chain(parts: list, program: EditProgram, n: int, has_audio: bool)
     video and audio shorten together and stay in sync."""
     d = program.transitions[0].duration
     # Video: offset of each xfade is the accumulated length so far, minus d.
-    acc = program.cuts[0].duration
+    acc = program.cuts[0].edited_duration
     prev = "v0"
     for i in range(1, n):
         off = acc - d
@@ -127,7 +180,7 @@ def _crossfade_chain(parts: list, program: EditProgram, n: int, has_audio: bool)
         parts.append(f"[{prev}][v{i}]xfade=transition=fade:duration={d}:"
                      f"offset={off:.3f}[{out}];")
         prev = out
-        acc += program.cuts[i].duration - d
+        acc += program.cuts[i].edited_duration - d
     if has_audio:
         aprev = "a0"
         for i in range(1, n):
@@ -142,23 +195,28 @@ def _build_filtergraph(program: EditProgram, has_audio: bool,
     parts: list[str] = []
     labels: list[str] = []
     elapsed = 0.0
-    # xfade requires a constant frame rate; after trim+setpts it isn't, so force
-    # one on every segment when transitions are in play.
-    fps_fix = ",fps=30" if program.transitions and len(program.cuts) > 1 else ""
+    # xfade and zoompan require a constant frame rate; after trim+setpts it
+    # isn't, so force one when either is in play.
+    fps_fix = (",fps=30" if (program.transitions and len(program.cuts) > 1)
+               or program.punch_zooms else "")
     for i, cut in enumerate(program.cuts):
         s, e = cut.source_start, cut.source_end
-        scale = _zoom_scale_for(program, elapsed, elapsed + cut.duration)
+        scale = _zoom_scale_for(program, elapsed, elapsed + cut.edited_duration)
         # A punch-in: scale up, then crop back to the original size (centered),
         # so every segment stays the same dimensions and concat still works.
         zoom_chain = (f",scale=iw*{scale}:ih*{scale},crop=iw/{scale}:ih/{scale}"
                       if scale else "")
+        # Playback speed: video PTS divided, audio tempo-matched below.
+        setpts = ("PTS-STARTPTS" if cut.speed == 1.0
+                  else f"(PTS-STARTPTS)/{cut.speed:g}")
         parts.append(
-            f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts=PTS-STARTPTS"
+            f"[0:v]trim=start={s:.3f}:end={e:.3f},setpts={setpts}"
             f"{zoom_chain}{_reframe_chain(program, i)}{fps_fix}[v{i}];")
         if has_audio:
-            parts.append(f"[0:a]atrim=start={s:.3f}:end={e:.3f},asetpts=PTS-STARTPTS[a{i}];")
+            parts.append(f"[0:a]atrim=start={s:.3f}:end={e:.3f},"
+                         f"asetpts=PTS-STARTPTS{_atempo_chain(cut.speed)}[a{i}];")
         labels.append(f"[v{i}][a{i}]" if has_audio else f"[v{i}]")
-        elapsed += cut.duration
+        elapsed += cut.edited_duration
 
     n = len(program.cuts)
     if program.transitions and n > 1:
@@ -185,6 +243,20 @@ def _build_filtergraph(program: EditProgram, has_audio: bool,
                 f"[{vlabel}][bd{j}]overlay=eof_action=repeat:"
                 f"enable='between(t,{b.start:.3f},{end:.3f})'[bo{j}];")
             vlabel = f"bo{j}"
+    # K Motion effects run on the assembled (post-reframe) stream, before
+    # captions burn — text must not zoom or shake.
+    if program.punch_zooms:
+        if main_dims is None:
+            raise ValueError("punch_zoom requires the main video dimensions")
+        dims = _reframed_dims(main_dims[0], main_dims[1], program)
+        parts.append(f"[{vlabel}]{_punch_zoom_chain(program, dims)[1:]}[pz];")
+        vlabel = "pz"
+    if program.shakes:
+        parts.append(f"[{vlabel}]{_shake_chain(program)[1:]}[shk];")
+        vlabel = "shk"
+    if program.grade and program.grade.preset in _GRADES:
+        parts.append(f"[{vlabel}]{_GRADES[program.grade.preset]}[grd];")
+        vlabel = "grd"
     if subs_path:
         # A karaoke .ass carries its own style; a plain .srt gets the house one.
         if subs_path.endswith(".ass"):
@@ -247,9 +319,9 @@ def execute_program(
         subs_path = str(Path(tmp) / "subs.srt")
         write_srt(program.subtitles, subs_path)
 
-    # B-roll overlays need the main video's dimensions to scale to.
+    # B-roll overlays and zoom pulses need the main video's dimensions.
     main_dims = None
-    if program.broll:
+    if program.broll or program.punch_zooms:
         from ..validator.check import probe
 
         info = probe(video_path)

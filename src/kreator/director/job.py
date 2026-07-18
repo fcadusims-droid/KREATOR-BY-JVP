@@ -35,6 +35,13 @@ _KEEP_BY_INTENSITY = {"light": 0.55, "medium": 0.40, "heavy": 0.28}
 # the crosshair (center-anchored), everything else follows the action.
 _FOCUS_BY_GENRE = {"shooter": "fps"}
 
+# Which K Motion style fits which recognized content. Shooters get the
+# aggressive montage; open-world action reads better cinematic; story/mission
+# and talking content stay clean (the "you cut too much" feedback again).
+_STYLE_BY_GENRE = {"shooter": "montage", "action_gameplay": "cinematic",
+                   "driving": "cinematic", "sports": "cinematic",
+                   "gta_heist": "clean", "talking": "clean"}
+
 
 def _focus_profile(profile) -> str:
     return _FOCUS_BY_GENRE.get(profile.genre, "follow")
@@ -51,6 +58,7 @@ class JobRequest:
     captions: str = "auto"           # auto | none | plain | karaoke
     language: str | None = None      # spoken-language ISO code; None = detect
     intensity: str = "auto"          # auto | light | medium | heavy
+    style: str = "auto"              # K Motion: auto | montage | cinematic | clean | none
     height: int = 720
     music: bool = True
     min_short_len: float = 15.0
@@ -61,7 +69,7 @@ class JobRequest:
         return {"long_edit": self.long_edit, "shorts": self.shorts,
                 "thumbnails": self.thumbnails, "title_text": self.title_text,
                 "aspect": self.aspect, "captions": self.captions,
-                "language": self.language,
+                "language": self.language, "style": self.style,
                 "intensity": self.intensity, "height": self.height,
                 "music": self.music, "min_short_len": self.min_short_len,
                 "max_short_len": self.max_short_len, "notes": self.notes}
@@ -85,6 +93,24 @@ def _cached_understanding(
         bundle = SignalBundle.from_dict(b)
         labels = [SceneLabel(d["time"], d["scene_type"], d["description"])
                   for d in s]
+        profile = detect_content([lab.description for lab in labels])
+        return Understanding(bundle, labels,
+                             visual_keep_series(labels, bundle.times),
+                             profile, any(a > 0.0 for a in bundle.audio))
+
+    if b is not None:
+        # Partial hit: the expensive signal pass is cached; only the VLM
+        # scene labels are missing — run just that half.
+        from ..vlm import label_keyframes, select_keyframes
+        from ..vlm.backends import LocalVLMBackend
+
+        progress("Reusing cached signals; understanding the scenes…")
+        bundle = SignalBundle.from_dict(b)
+        backend = vlm_backend or LocalVLMBackend()
+        labels = label_keyframes(
+            video_path, select_keyframes(bundle, max_frames=vlm_frames),
+            backend)
+        cache.put(ks, [lab.to_dict() for lab in labels])
         profile = detect_content([lab.description for lab in labels])
         return Understanding(bundle, labels,
                              visual_keep_series(labels, bundle.times),
@@ -132,13 +158,23 @@ def _needs_transcript(req: JobRequest, preset: dict, has_audio: bool) -> bool:
     return bool(preset["keep_dialogue"] or req.shorts)
 
 
+def _agent(log: list, name: str, decision: str, detail: str = "") -> None:
+    """One K Agent's decision in the job's audit chain — 'One Agent. One
+    Responsibility.' made visible: who decided what, in order."""
+    entry = {"agent": name, "decision": decision}
+    if detail:
+        entry["detail"] = detail
+    log.append(entry)
+
+
 def _render_long_edit(
     video_path: str, out_path: str, und: Understanding, req: JobRequest,
     transcript: list, library_root, progress: Callable[[str], None],
-    prov_log: str | None = None,
+    prov_log: str | None = None, style: str = "clean", agents: list | None = None,
 ) -> dict:
     """The condensed full edit — the autonomous editor's deliverable, but
     shaped by the request (intensity, aspect, caption style)."""
+    agents = agents if agents is not None else []
     preset = EDITING_PRESETS[und.profile.preset]
     target_keep = _KEEP_BY_INTENSITY.get(req.intensity, preset["target_keep"])
 
@@ -155,10 +191,18 @@ def _render_long_edit(
             und.bundle, speech=speech, visual_keep=und.visual)
     if not plan.segments:
         raise RuntimeError("nothing clearly worth keeping was found")
+    _agent(agents, "K Editor",
+           f"kept {plan.keep_ratio:.0%} in {len(plan.segments)} coherent "
+           f"segment(s)",
+           "speech-driven pause cut" if und.profile.preset == "talking"
+           else f"interest condense, target {target_keep:.0%}")
 
     karaoke = req.captions in ("auto", "karaoke") and any(
         getattr(s, "words", ()) for s in transcript)
     use_subs = bool(transcript) and req.captions != "none" and preset["keep_dialogue"]
+    if use_subs:
+        _agent(agents, "K Subtitle",
+               "karaoke word-level captions" if karaoke else "plain subtitles")
 
     focus = None
     if req.aspect:
@@ -188,18 +232,29 @@ def _render_long_edit(
         rationale.append(f"Music bed from the K Library "
                          f"({music_asset.path.name}), mixed under the audio.")
 
+    # The long edit takes the style's color grade; event-keyframed effects
+    # (slow-mo, pulses) stay on Shorts, where the OCR pass is bounded.
+    from ..motion import STYLES
+    grade = (STYLES.get(style) or {}).get("grade")
+    if grade:
+        rationale.append(f"'{grade}' color grade ({style} style).")
+        _agent(agents, "K Motion", f"'{grade}' grade on the full edit",
+               f"style '{style}'")
+
     program = compose_program(
         plan, transcript=transcript if use_subs else None,
         subtitles=use_subs and not karaoke, captions=use_subs and karaoke,
         zoom=bool(preset["zoom"]), music_track=music_track,
         height=req.height, aspect=req.aspect, focus_x=focus,
-        rationale=rationale)
+        grade=grade, rationale=rationale)
 
     progress(f"Rendering the full edit at {req.height}p…")
     execute_program(video_path, program, out_path, has_audio=und.has_audio)
     report = validate_render(out_path, program, has_audio=und.has_audio)
     if not report.ok:
         raise RuntimeError("render validation failed: " + "; ".join(report.issues))
+    _agent(agents, "K Validator",
+           f"long edit approved ({report.duration:.0f}s as planned)")
 
     if prov_log:
         record_render(prov_log, source_video=video_path, output_path=out_path,
@@ -229,6 +284,7 @@ def run_job(
     vlm_frames: int = 14,
     understanding: Understanding | None = None,
     cache_dir: str | None = None,
+    taste_model_path: str | None = None,
     progress: Callable[[str], None] = lambda s: None,
 ) -> dict:
     """Produce every requested deliverable from one shared analysis.
@@ -253,6 +309,14 @@ def run_job(
                                vlm_backend=vlm_backend, progress=progress)
     preset = EDITING_PRESETS[und.profile.preset]
 
+    agents: list[dict] = []
+    style = (req.style if req.style != "auto"
+             else _STYLE_BY_GENRE.get(und.profile.genre, "clean"))
+    _agent(agents, "K Director",
+           f"recognized {und.profile.label} → '{und.profile.preset}' preset, "
+           f"'{style}' style, '{_focus_profile(und.profile)}' crop focus",
+           preset["note"])
+
     transcript: list = []
     if _needs_transcript(req, preset, und.has_audio):
         want_words = req.captions in ("auto", "karaoke")
@@ -270,38 +334,66 @@ def run_job(
                          f"({ratio:.0%} of it is speech).")
                 und.profile = better
                 preset = EDITING_PRESETS[better.preset]
+                _agent(agents, "K Director",
+                       f"re-recognized as {better.label} "
+                       f"({ratio:.0%} speech coverage)")
 
     prov_log = str(out / "provenance.jsonl")
     deliverables: list[dict] = []
     if req.long_edit:
         deliverables.append(_render_long_edit(
             video_path, str(out / "long_edit.mp4"), und, req, transcript,
-            library_root, progress, prov_log=prov_log))
+            library_root, progress, prov_log=prov_log, style=style,
+            agents=agents))
 
     if req.shorts > 0:
         spec = ShortSpec(min_len=req.min_short_len, max_len=req.max_short_len,
                          subtitles=req.captions != "none",
                          karaoke=req.captions in ("auto", "karaoke"),
-                         height=1080)
+                         height=1080, style=style)
+        taste = None
+        if taste_model_path:
+            from ..learn import load_model
+            taste = load_model(taste_model_path)
+            if taste:
+                _agent(agents, "K Memory",
+                       f"taste model loaded ({taste['n_examples']} judged "
+                       f"clips, train acc {taste['train_accuracy']:.0%})")
         shorts_manifest = make_shorts(
             video_path, str(out), top_n=req.shorts, spec=spec,
             transcript=transcript, bundle=und.bundle,
-            focus_profile=_focus_profile(und.profile), progress=progress,
-            provenance_log=prov_log)
-        for s in shorts_manifest["shorts"]:
+            focus_profile=_focus_profile(und.profile), taste_model=taste,
+            progress=progress, provenance_log=prov_log)
+        shorts = shorts_manifest["shorts"]
+        n_events = sum(len(s.get("game_events", [])) for s in shorts)
+        _agent(agents, "K GameSense",
+               f"read {n_events} on-screen/announcer event(s) across the "
+               f"candidate windows")
+        _agent(agents, "K Clipper",
+               f"ranked a {req.shorts * 3}-candidate pool, delivered "
+               f"{len(shorts)} distinct moment(s), event-adjusted")
+        _agent(agents, "K Motion",
+               f"'{style}' treatment on the Shorts "
+               f"(slow-mo/pulses/shake keyframed on the events)")
+        ok = sum(1 for s in shorts if s["validation"]["ok"])
+        _agent(agents, "K Validator", f"{ok}/{len(shorts)} Shorts approved")
+        for s in shorts:
             deliverables.append({"kind": "short", **s})
 
     if req.thumbnails > 0:
         from ..thumbnail import make_thumbnails
         progress("Composing thumbnail candidates from real frames…")
-        for entry in make_thumbnails(video_path, und.bundle, str(out),
-                                     n=req.thumbnails, text=req.title_text):
+        thumbs = make_thumbnails(video_path, und.bundle, str(out),
+                                 n=req.thumbnails, text=req.title_text)
+        for entry in thumbs:
             record_render(prov_log, source_video=video_path,
                           output_path=str(out / entry["file"]),
                           program={"operations": [
                               {"type": "thumbnail", **entry}]})
             deliverables.append({"kind": "thumbnail", **entry,
                                  "validation": {"ok": True, "issues": []}})
+        _agent(agents, "K Thumbnail",
+               f"{len(thumbs)} candidate(s) from the strongest real frames")
 
     manifest = {
         "video": video_path,
@@ -311,6 +403,7 @@ def run_job(
             "preset": und.profile.preset, "preset_note": preset["note"],
             "scenes": [lab.to_dict() for lab in und.labels],
         },
+        "agents": agents,
         "deliverables": deliverables,
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2),

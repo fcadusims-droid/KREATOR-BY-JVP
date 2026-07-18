@@ -59,6 +59,20 @@ Built on one signal-first pipeline:
   (English or Portuguese) parsed deterministically into the same job form —
   including the spoken language for transcription/captions (auto-detected by
   default, or pinned: en, pt, es, fr, de, it, ja, ko).
+- **Edit heavy** (K Motion): slow motion landing exactly on the kill, zoom
+  pulses on the game's celebrated instants, impact shake on the multikill,
+  named color grades, effect times snapped to the music's beat — style
+  presets (montage/cinematic/clean) picked by the Director from the
+  recognized content. All deterministic FFmpeg transforms of real pixels,
+  keyframed on K GameSense's event timestamps.
+- **Work as a team of K Agents**: every job ships an audit chain — K Director
+  recognized X, K GameSense read Y events, K Clipper ranked, K Editor kept
+  Z%, K Motion treated, K Subtitle captioned, K Validator approved — one
+  agent, one responsibility, every decision justified in the manifest.
+- **Learn the creator's taste** (K Learn): every 👍/👎 on a Short in the web
+  UI becomes a labeled example; a small deterministic model retrains on the
+  spot and its *bounded* opinion joins the ranking — rules stay in charge,
+  the model converges on taste (see `docs/training.md`).
 - **Compose thumbnails from real frames** (K Thumbnail): pick the strongest
   distinct moments, crop with composition, lift contrast/color, sharpen,
   optionally draw the creator's own title — a Photoshop editor's treatment,
@@ -92,9 +106,12 @@ See [`docs/vlm-without-gpu.md`](./docs/vlm-without-gpu.md).
 
 The edit is then produced as a small **operations program** (a cut spine plus
 overlays, each carrying its justification) run by an FFmpeg executor. Operations
-today: `cut`, `subtitle` (the creator's own transcribed dialogue, remapped to
+today: `cut` (with per-segment `speed` — 0.5× slow motion, audio
+tempo-matched), `subtitle` (the creator's own transcribed dialogue, remapped to
 the edited timeline), `caption` (word-by-word karaoke, word timings remapped
-individually), `zoom` (punch-in on the action), `transition` (crossfade),
+individually), `zoom` (punch-in on the action), `punch_zoom` (a zoom *pulse*
+that snaps at the event and eases out), `shake` (impact jitter, gated to its
+window), `grade` (named color treatments), `transition` (crossfade),
 `music` (a background track from the **K Library** of free-to-use assets, mixed
 under the audio), `sfx` (a library one-shot mixed in at an instant, without
 lowering the creator's own audio), `broll` (a library clip overlaid as a
@@ -167,6 +184,8 @@ src/kreator/
   reframe/            # aspect reframing: focus-follow crop math for 9:16 Shorts
   shorts/             # ranked moments → finished vertical Shorts + manifest
   gamesense/          # K GameSense: OCR the HUD → game events → viral scoring
+  motion/             # K Motion: slow-mo/pulse/shake/grade planned on the events
+  learn/              # K Learn: the creator's taste model (verdicts → ranking)
   thumbnail/          # K Thumbnail: strongest real frames, treated, never generated
   director/           # autonomy: recognize content → preset → multi-deliverable job
   library/            # K Library: registry of the user's free-to-use assets

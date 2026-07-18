@@ -15,18 +15,33 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class Cut:
-    """A source span to keep — the spine of the edit."""
+    """A source span to keep — the spine of the edit.
+
+    ``speed`` is the playback rate: 1.0 plays as filmed, 0.5 is half-speed
+    slow motion (the K Motion planner splits a cut so the slow-mo lands
+    exactly on the event). Audio is tempo-matched by the executor.
+    """
     source_start: float
     source_end: float
     reason: str = ""   # why this span was kept (the justification)
+    speed: float = 1.0
 
     @property
     def duration(self) -> float:
+        """Source-time length of the span."""
         return self.source_end - self.source_start
 
+    @property
+    def edited_duration(self) -> float:
+        """How long this cut lasts in the edited video (speed applied)."""
+        return self.duration / self.speed
+
     def to_dict(self) -> dict:
-        return {"type": "cut", "source_start": round(self.source_start, 3),
-                "source_end": round(self.source_end, 3), "reason": self.reason}
+        d = {"type": "cut", "source_start": round(self.source_start, 3),
+             "source_end": round(self.source_end, 3), "reason": self.reason}
+        if self.speed != 1.0:
+            d["speed"] = self.speed
+        return d
 
 
 @dataclass(frozen=True)
@@ -94,6 +109,48 @@ class Zoom:
     def to_dict(self) -> dict:
         return {"type": "zoom", "start": round(self.start, 3),
                 "end": round(self.end, 3), "scale": self.scale}
+
+
+@dataclass(frozen=True)
+class PunchZoom:
+    """A zoom *pulse* centered at an edited-time instant — snaps in and eases
+    out, the CapCut-style hit emphasis. ``amount`` is the peak extra zoom
+    (0.22 = 22%); ``width`` is roughly how many seconds the pulse breathes."""
+    at: float
+    amount: float = 0.22
+    width: float = 0.5
+    reason: str = ""
+
+    def to_dict(self) -> dict:
+        return {"type": "punch_zoom", "at": round(self.at, 3),
+                "amount": self.amount, "width": self.width,
+                "reason": self.reason}
+
+
+@dataclass(frozen=True)
+class Shake:
+    """A camera-shake window on the edited timeline — impact emphasis. The
+    frame is slightly upscaled and the crop window jitters inside it, so
+    every pixel shown is still real footage."""
+    start: float
+    end: float
+    amplitude: float = 10.0    # max jitter in output pixels
+    reason: str = ""
+
+    def to_dict(self) -> dict:
+        return {"type": "shake", "start": round(self.start, 3),
+                "end": round(self.end, 3), "amplitude": self.amplitude,
+                "reason": self.reason}
+
+
+@dataclass(frozen=True)
+class Grade:
+    """A whole-video color treatment by named preset — deterministic
+    eq/colorbalance chains, the programmatic equivalent of a LUT."""
+    preset: str = "vivid"      # vivid | cinematic | punchy
+
+    def to_dict(self) -> dict:
+        return {"type": "grade", "preset": self.preset}
 
 
 @dataclass(frozen=True)
@@ -185,6 +242,9 @@ class EditProgram:
     captions: list[Caption] = field(default_factory=list)   # karaoke (word-level)
     caption_style: CaptionStyle | None = None
     zooms: list[Zoom] = field(default_factory=list)
+    punch_zooms: list[PunchZoom] = field(default_factory=list)
+    shakes: list[Shake] = field(default_factory=list)
+    grade: Grade | None = None
     transitions: list[Transition] = field(default_factory=list)
     music: list[Music] = field(default_factory=list)
     sfx: list[Sfx] = field(default_factory=list)
@@ -197,7 +257,7 @@ class EditProgram:
 
     @property
     def edited_duration(self) -> float:
-        return sum(c.duration for c in self.cuts)
+        return sum(c.edited_duration for c in self.cuts)
 
     def to_dict(self) -> dict:
         return {
@@ -209,6 +269,9 @@ class EditProgram:
                 + [s.to_dict() for s in self.subtitles]
                 + [c.to_dict() for c in self.captions]
                 + [z.to_dict() for z in self.zooms]
+                + [p.to_dict() for p in self.punch_zooms]
+                + [s.to_dict() for s in self.shakes]
+                + ([self.grade.to_dict()] if self.grade else [])
                 + [t.to_dict() for t in self.transitions]
                 + [m.to_dict() for m in self.music]
                 + [s.to_dict() for s in self.sfx]

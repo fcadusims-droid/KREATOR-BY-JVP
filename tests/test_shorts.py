@@ -43,7 +43,9 @@ def test_build_short_program_single_cut_reframed():
     assert prog.cuts[0].source_start == 30.0 and prog.cuts[0].source_end == 55.0
     assert prog.reframe is not None and prog.reframe.focus_x == (0.7,)
     assert prog.reframe.aspect == "9:16"
-    assert prog.rationale == ["Rank #1: big explosion"]
+    assert prog.rationale[0] == "Rank #1: big explosion"
+    # The default montage style adds its grade note to the rationale.
+    assert any("grade" in r for r in prog.rationale[1:])
 
 
 def test_build_short_program_subtitles_remapped_to_clip():
