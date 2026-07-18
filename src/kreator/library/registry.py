@@ -17,7 +17,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 _AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
-_KIND_DIRS = {"music": "music", "sfx": "sfx", "meme": "memes"}
+_VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm"}
+_KIND_DIRS = {"music": "music", "sfx": "sfx", "meme": "memes",
+              "broll": "broll"}
 
 
 @dataclass(frozen=True)
@@ -48,9 +50,11 @@ class KLibrary:
         sub = self.root / _KIND_DIRS.get(kind, kind)
         if not sub.is_dir():
             return []
+        wanted = (_VIDEO_EXT if kind == "broll"
+                  else _AUDIO_EXT if kind in ("music", "sfx") else None)
         out: list[Asset] = []
         for f in sorted(sub.iterdir()):
-            if f.suffix.lower() not in _AUDIO_EXT and kind != "meme":
+            if wanted is not None and f.suffix.lower() not in wanted:
                 continue
             meta = self._manifest.get(f.name, {})
             moods = tuple(meta.get("moods", []))
@@ -60,15 +64,26 @@ class KLibrary:
     def list_music(self) -> list[Asset]:
         return self._assets_of_kind("music")
 
-    def find_music(self, mood: str | None = None) -> Asset | None:
-        """Return a music asset matching ``mood`` (by tag or filename), or any
-        available track, or ``None`` if the library has no music."""
-        tracks = self.list_music()
-        if not tracks:
+    def _find(self, kind: str, mood: str | None) -> Asset | None:
+        assets = self._assets_of_kind(kind)
+        if not assets:
             return None
         if mood:
             m = mood.lower()
-            for a in tracks:
+            for a in assets:
                 if m in [x.lower() for x in a.moods] or m in a.path.stem.lower():
                     return a
-        return tracks[0]
+        return assets[0]
+
+    def find_music(self, mood: str | None = None) -> Asset | None:
+        """Return a music asset matching ``mood`` (by tag or filename), or any
+        available track, or ``None`` if the library has no music."""
+        return self._find("music", mood)
+
+    def find_sfx(self, name: str | None = None) -> Asset | None:
+        """A sound effect matching ``name`` (tag or filename), or any, or None."""
+        return self._find("sfx", name)
+
+    def find_broll(self, query: str | None = None) -> Asset | None:
+        """A b-roll clip matching ``query`` (tag or filename), or any, or None."""
+        return self._find("broll", query)

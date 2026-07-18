@@ -230,6 +230,11 @@ updates itself, you can leave it open.</div>
            (d.subtitles?`, ${d.subtitles} subtitles`:'')+`</div>`+
            (why?`<ul class="why">${why}</ul>`:'')+
            `<a class="dl" href="/job/${id}/file/${d.file}">⬇ Download full edit</a>`;
+       } else if(d.kind==='thumbnail'){
+         html+=`<div class="stat" style="margin-top:.8rem"><b>Thumbnail</b>
+           (real frame at ${d.time}s)</div>
+           <img src="/job/${id}/file/${d.file}" style="max-width:100%;border-radius:10px;margin-top:.4rem">
+           <a class="dl short" href="/job/${id}/file/${d.file}">⬇ ${d.file}</a>`;
        } else {
          html+=`<div class="stat" style="margin-top:.8rem"><b>Short #${d.rank}</b>
            (${d.duration}s${d.aspect?', '+d.aspect:''}) — ${d.rationale||''}</div>

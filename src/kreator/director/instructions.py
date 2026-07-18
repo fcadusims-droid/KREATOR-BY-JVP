@@ -119,6 +119,16 @@ def parse_instruction(text: str) -> JobRequest:
             notes.append(f"language: {code}")
             break
 
+    # Thumbnails ("3 thumbnails", "sem thumbnail", "with a thumbnail").
+    if re.search(r"sem (?:thumb|thumbnail|capa)|no thumbnails?", t):
+        req.thumbnails = 0
+        notes.append("no thumbnails")
+    else:
+        m = re.search(r"(\d+)\s*(?:thumbs?|thumbnails?|capas?)", t)
+        if m:
+            req.thumbnails = int(m.group(1))
+            notes.append(f"{req.thumbnails} thumbnail candidate(s)")
+
     # Music.
     if re.search(r"sem m[úu]sica|no music", t):
         req.music = False

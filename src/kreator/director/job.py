@@ -37,6 +37,8 @@ class JobRequest:
     """What the creator asked for. Defaults reproduce the autonomous edit."""
     long_edit: bool = True
     shorts: int = 0                  # how many vertical Shorts to also produce
+    thumbnails: int = 1              # thumbnail candidates from real frames
+    title_text: str | None = None    # creator's own title drawn on thumbnails
     aspect: str | None = None        # long-edit aspect (None = keep source)
     captions: str = "auto"           # auto | none | plain | karaoke
     language: str | None = None      # spoken-language ISO code; None = detect
@@ -49,6 +51,7 @@ class JobRequest:
 
     def to_dict(self) -> dict:
         return {"long_edit": self.long_edit, "shorts": self.shorts,
+                "thumbnails": self.thumbnails, "title_text": self.title_text,
                 "aspect": self.aspect, "captions": self.captions,
                 "language": self.language,
                 "intensity": self.intensity, "height": self.height,
@@ -277,6 +280,18 @@ def run_job(
             provenance_log=prov_log)
         for s in shorts_manifest["shorts"]:
             deliverables.append({"kind": "short", **s})
+
+    if req.thumbnails > 0:
+        from ..thumbnail import make_thumbnails
+        progress("Composing thumbnail candidates from real frames…")
+        for entry in make_thumbnails(video_path, und.bundle, str(out),
+                                     n=req.thumbnails, text=req.title_text):
+            record_render(prov_log, source_video=video_path,
+                          output_path=str(out / entry["file"]),
+                          program={"operations": [
+                              {"type": "thumbnail", **entry}]})
+            deliverables.append({"kind": "thumbnail", **entry,
+                                 "validation": {"ok": True, "issues": []}})
 
     manifest = {
         "video": video_path,

@@ -51,6 +51,10 @@ Built on one signal-first pipeline:
   (English or Portuguese) parsed deterministically into the same job form —
   including the spoken language for transcription/captions (auto-detected by
   default, or pinned: en, pt, es, fr, de, it, ja, ko).
+- **Compose thumbnails from real frames** (K Thumbnail): pick the strongest
+  distinct moments, crop with composition, lift contrast/color, sharpen,
+  optionally draw the creator's own title — a Photoshop editor's treatment,
+  never a generator.
 - **Reuse analysis**: an incremental cache (`content + module version +
   params`) means a second deliverable or re-run never re-analyzes the video,
   and every render appends to an **append-only provenance log** tracing output
@@ -84,13 +88,15 @@ today: `cut`, `subtitle` (the creator's own transcribed dialogue, remapped to
 the edited timeline), `caption` (word-by-word karaoke, word timings remapped
 individually), `zoom` (punch-in on the action), `transition` (crossfade),
 `music` (a background track from the **K Library** of free-to-use assets, mixed
-under the audio), and `reframe` (recrop to another aspect — `--aspect 9:16`
-turns the edit vertical for Shorts, with the crop window following the action's
-motion, or `--reframe pad` to fit with bars). A **K Validator** step checks the
-render matches the plan — duration, streams, and aspect — before it's handed
-over, and every render appends a provenance record tracing it back to the
-source footage. `b-roll` is defined in the program but its executor is future
-work.
+under the audio), `sfx` (a library one-shot mixed in at an instant, without
+lowering the creator's own audio), `broll` (a library clip overlaid as a
+cutaway for its window, scaled to the frame, while the main audio continues),
+and `reframe` (recrop to another aspect — `--aspect 9:16` turns the edit
+vertical for Shorts, with the crop window following the action's motion, or
+`--reframe pad` to fit with bars). A **K Validator** step checks the render
+matches the plan — duration, streams, and aspect — before it's handed over,
+and every render appends a provenance record tracing it back to the source
+footage.
 
 The reasoning — the model *plans* an intermediate representation (timeline +
 operations + justifications) and a deterministic executor runs it, rather than a
@@ -152,6 +158,7 @@ src/kreator/
   dsl/                # the edit as data: operations program + FFmpeg executor
   reframe/            # aspect reframing: focus-follow crop math for 9:16 Shorts
   shorts/             # ranked moments → finished vertical Shorts + manifest
+  thumbnail/          # K Thumbnail: strongest real frames, treated, never generated
   director/           # autonomy: recognize content → preset → multi-deliverable job
   library/            # K Library: registry of the user's free-to-use assets
   validator/          # K Validator: does the render match the plan?
