@@ -66,6 +66,11 @@ def main() -> int:
     ap.add_argument("--reframe", default="crop", choices=["crop", "pad"],
                     help="with --aspect: 'crop' follows the action inside a "
                          "real-pixel window, 'pad' fits the frame with bars")
+    ap.add_argument("--focus", default="follow",
+                    choices=["fps", "follow", "center"],
+                    help="crop policy for --aspect: 'fps' anchors near the "
+                         "crosshair, 'follow' tracks the action, 'center' is "
+                         "a fixed center crop")
     ap.add_argument("-o", "--out", default="out/edited.mp4",
                     help="edited video output path")
     ap.add_argument("--plan-out", default=None, help="edit-plan JSON output path")
@@ -150,7 +155,8 @@ def main() -> int:
             from kreator.reframe import cut_focus_centers
             print("Finding the action's horizontal focus per kept segment…")
             focus = cut_focus_centers(
-                args.video, [(s.span.start, s.span.end) for s in plan.segments])
+                args.video, [(s.span.start, s.span.end) for s in plan.segments],
+                profile=args.focus)
         program = compose_program(
             plan, transcript=segments, subtitles=bool(segments),
             captions=args.captions,

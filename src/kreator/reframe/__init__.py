@@ -9,7 +9,10 @@ it into an FFmpeg expression. No pixel is invented (see docs/not-generative.md):
 ``crop`` selects real pixels, ``pad`` adds neutral bars around them.
 """
 
-from .geometry import center_of_mass, crop_window, parse_aspect
-from .focus import cut_focus_centers
+from .geometry import (center_of_mass, center_weighted, clamp_focus,
+                       crop_window, parse_aspect)
+from .focus import FOCUS_PROFILES, cut_focus_centers
 
-__all__ = ["parse_aspect", "crop_window", "center_of_mass", "cut_focus_centers"]
+__all__ = ["parse_aspect", "crop_window", "center_of_mass",
+           "center_weighted", "clamp_focus",
+           "FOCUS_PROFILES", "cut_focus_centers"]

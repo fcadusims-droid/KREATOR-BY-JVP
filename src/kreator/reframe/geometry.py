@@ -40,6 +40,34 @@ def center_of_mass(energies: list[float]) -> float:
     return weighted / (total * len(energies))
 
 
+def center_weighted(energies: list[float], strength: float) -> list[float]:
+    """Down-weight energy near the frame edges by a Hann-like window.
+
+    This is the anti-HUD prior: in HUD-heavy games (FPS especially) the
+    subject sits at the crosshair while kill feeds, minimaps, and hit
+    notifications flicker off-center — raw motion energy follows the flicker
+    and drags the crop off the action. ``strength`` blends between no
+    weighting (0) and a full cosine window (1).
+    """
+    import math
+
+    n = len(energies)
+    if n == 0 or strength <= 0:
+        return list(energies)
+    out = []
+    for i, e in enumerate(energies):
+        x = (i + 0.5) / n
+        hann = 0.5 - 0.5 * math.cos(2 * math.pi * x)   # 0 at edges, 1 center
+        out.append(e * ((1.0 - strength) + strength * hann))
+    return out
+
+
+def clamp_focus(focus: float, max_offset: float) -> float:
+    """Keep the focus within ``max_offset`` of center — the crop never
+    commits to the edge unless the caller explicitly allows it."""
+    return min(max(focus, 0.5 - max_offset), 0.5 + max_offset)
+
+
 def crop_window(
     src_w: int, src_h: int, aspect: str, focus_x: float = 0.5
 ) -> tuple[int, int, int, int]:
