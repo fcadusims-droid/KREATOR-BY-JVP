@@ -143,15 +143,33 @@ class Reframe:
 
 
 @dataclass(frozen=True)
-class Broll:
-    """A licensed B-roll clip from the K Library (executor: future)."""
-    query: str
-    start: float
-    duration: float
+class Sfx:
+    """A short sound effect — a real, free-to-use K Library file — mixed in
+    at an edited-timeline instant, under the main audio."""
+    at: float
+    sound: str                      # path to the library audio file
+    volume: float = 0.8
+    reason: str = ""
 
     def to_dict(self) -> dict:
-        return {"type": "broll", "query": self.query,
-                "start": round(self.start, 3), "duration": self.duration}
+        return {"type": "sfx", "at": round(self.at, 3), "sound": self.sound,
+                "volume": self.volume, "reason": self.reason}
+
+
+@dataclass(frozen=True)
+class Broll:
+    """A licensed B-roll cutaway from the K Library: its video overlays the
+    edit for ``[start, start+duration)`` (edited time) while the main audio
+    keeps playing. ``path`` is the real library file."""
+    path: str
+    start: float
+    duration: float
+    reason: str = ""
+
+    def to_dict(self) -> dict:
+        return {"type": "broll", "path": self.path,
+                "start": round(self.start, 3), "duration": self.duration,
+                "reason": self.reason}
 
 
 @dataclass
@@ -169,6 +187,7 @@ class EditProgram:
     zooms: list[Zoom] = field(default_factory=list)
     transitions: list[Transition] = field(default_factory=list)
     music: list[Music] = field(default_factory=list)
+    sfx: list[Sfx] = field(default_factory=list)
     broll: list[Broll] = field(default_factory=list)
     reframe: Reframe | None = None
     height: int | None = None
@@ -192,6 +211,7 @@ class EditProgram:
                 + [z.to_dict() for z in self.zooms]
                 + [t.to_dict() for t in self.transitions]
                 + [m.to_dict() for m in self.music]
+                + [s.to_dict() for s in self.sfx]
                 + [b.to_dict() for b in self.broll]
                 + ([self.reframe.to_dict()] if self.reframe else [])
             ),

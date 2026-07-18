@@ -113,9 +113,23 @@ def make_shorts(
 
     progress("Ranking the best moments…")
     evidences = KAnalyst().analyze(bundle, video_path=video_path)
-    candidates = KClipper().rank(evidences, top_n=top_n)
+    # Rank extra candidates: fitting a span to Short length can make two
+    # nearby moments overlap heavily even though their raw windows didn't
+    # (seen on real footage: moments 8s apart became near-identical 15s
+    # Shorts). Dedup happens *after* fitting, so extras fill the gaps.
+    pool = KClipper().rank(evidences, top_n=top_n * 3)
 
-    fitted = [fit_span(c.span, bundle.duration, spec) for c in candidates]
+    candidates, fitted = [], []
+    for cand in pool:
+        span = fit_span(cand.span, bundle.duration, spec)
+        # Over a third of shared footage reads as the same Short twice.
+        if any(span.intersection(f) / max(span.duration, 1e-6) > 0.35
+               for f in fitted):
+            continue
+        candidates.append(cand)
+        fitted.append(span)
+        if len(candidates) >= top_n:
+            break
     focus = [0.5] * len(fitted)
     if spec.aspect:
         progress("Finding the action's focus in each moment…")

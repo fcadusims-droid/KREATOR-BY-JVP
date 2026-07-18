@@ -1,11 +1,11 @@
 """Execute an EditProgram with FFmpeg — the deterministic operations runner.
 
 Today it runs the `cut` spine (trim/concat, frame-accurate), burns `subtitle`
-overlays (libass), applies `zoom` punch-ins and `transition` crossfades, mixes a
-`music` bed under the audio, reframes to a target aspect (`reframe`: 9:16
-Shorts via focus-aware crop or pad), and scales to the target height.
-`broll` is carried in the program but not yet executed — it raises nothing,
-just skipped until its executor lands.
+overlays (libass) and word-level `caption` karaoke, applies `zoom` punch-ins
+and `transition` crossfades, mixes a `music` bed and `sfx` one-shots under the
+audio, overlays `broll` cutaways (real K Library clips, scaled to the frame),
+reframes to a target aspect (`reframe`: 9:16 Shorts via focus-aware crop or
+pad), and scales to the target height.
 """
 
 from __future__ import annotations
@@ -74,6 +74,45 @@ def _reframe_chain(program: EditProgram, cut_index: int) -> str:
             f":x='clip(iw*{fx:.4f}-ow/2,0,iw-ow)':y='(ih-oh)/2'")
 
 
+def _input_map(program: EditProgram, has_audio: bool):
+    """Assign an FFmpeg input index to every extra media file the program
+    needs, in a fixed order (music, sfx…, broll…). The command builder and the
+    filtergraph builder both derive from this, so they can never disagree."""
+    idx = 1
+    music_idx = None
+    if has_audio and program.music:
+        music_idx = idx
+        idx += 1
+    sfx_idxs = []
+    if has_audio:
+        for _ in program.sfx:
+            sfx_idxs.append(idx)
+            idx += 1
+    broll_idxs = []
+    for _ in program.broll:
+        broll_idxs.append(idx)
+        idx += 1
+    return music_idx, sfx_idxs, broll_idxs
+
+
+def _reframed_dims(src_w: int, src_h: int, program: EditProgram):
+    """The main video's dimensions after the (optional) reframe step — what a
+    b-roll overlay must be scaled to. Mirrors the executor's crop/pad math."""
+    rf = program.reframe
+    if rf is None:
+        return src_w, src_h
+    if rf.strategy == "pad":
+        aw, ah = (int(x) for x in rf.aspect.split(":"))
+        pw = max(src_w, src_h * aw / ah)
+        ph = max(src_h, src_w * ah / aw)
+        even_up = lambda x: int((x + 1) // 2) * 2  # noqa: E731
+        return even_up(pw), even_up(ph)
+    from ..reframe import crop_window
+
+    _, _, w, h = crop_window(src_w, src_h, rf.aspect)
+    return w, h
+
+
 def _crossfade_chain(parts: list, program: EditProgram, n: int, has_audio: bool) -> None:
     """Chain xfade (video) + acrossfade (audio) across the segments, ending in
     [cv]/[outa]. Each transition overlaps neighbours by ``duration`` seconds, so
@@ -97,7 +136,9 @@ def _crossfade_chain(parts: list, program: EditProgram, n: int, has_audio: bool)
             aprev = aout
 
 
-def _build_filtergraph(program: EditProgram, has_audio: bool, subs_path: str | None):
+def _build_filtergraph(program: EditProgram, has_audio: bool,
+                       subs_path: str | None, main_dims=None):
+    music_idx, sfx_idxs, broll_idxs = _input_map(program, has_audio)
     parts: list[str] = []
     labels: list[str] = []
     elapsed = 0.0
@@ -128,6 +169,22 @@ def _build_filtergraph(program: EditProgram, has_audio: bool, subs_path: str | N
         parts.append(f"{''.join(labels)}concat=n={n}:v=1:a=0[cv];")
 
     vlabel = "cv"
+    # B-roll cutaways go under the captions: each library clip is scaled to
+    # the main frame (dims known from the probe + reframe math), shifted to
+    # its window start, and overlaid only inside its window — the main video
+    # continues underneath and resumes after (eof_action=repeat keeps the
+    # stream alive; enable gates what is actually shown).
+    if program.broll and broll_idxs:
+        if main_dims is None:
+            raise ValueError("broll requires the main video dimensions")
+        bw, bh = _reframed_dims(main_dims[0], main_dims[1], program)
+        for j, (b, bi) in enumerate(zip(program.broll, broll_idxs)):
+            end = b.start + b.duration
+            parts.append(
+                f"[{bi}:v]scale={bw}:{bh},setpts=PTS+{b.start:.3f}/TB[bd{j}];"
+                f"[{vlabel}][bd{j}]overlay=eof_action=repeat:"
+                f"enable='between(t,{b.start:.3f},{end:.3f})'[bo{j}];")
+            vlabel = f"bo{j}"
     if subs_path:
         # A karaoke .ass carries its own style; a plain .srt gets the house one.
         if subs_path.endswith(".ass"):
@@ -141,14 +198,24 @@ def _build_filtergraph(program: EditProgram, has_audio: bool, subs_path: str | N
         parts.append(f"[{vlabel}]scale=-2:{int(program.height)}[outs];")
         vlabel = "outs"
 
-    # Background music (from the K Library) mixed under the original audio. The
-    # music is input [1:a], looped, lowered to its volume, and trimmed to the
-    # video length (duration=first).
+    # Audio layers under the original track: a looped K Library music bed
+    # (lowered to its volume) and sfx one-shots (delayed to their instant).
+    # normalize=0 keeps the creator's own audio at full level — amix's default
+    # would divide everything by the input count.
     alabel = "outa"
-    if has_audio and program.music:
+    layers: list[str] = []
+    if has_audio and program.music and music_idx is not None:
         vol = program.music[0].volume
-        parts.append(f"[1:a]volume={vol}[mus];"
-                     f"[outa][mus]amix=inputs=2:duration=first:dropout_transition=0[amx];")
+        parts.append(f"[{music_idx}:a]volume={vol}[mus];")
+        layers.append("mus")
+    for j, (sf, si) in enumerate(zip(program.sfx, sfx_idxs)):
+        ms = int(round(sf.at * 1000))
+        parts.append(f"[{si}:a]adelay={ms}|{ms},volume={sf.volume}[sx{j}];")
+        layers.append(f"sx{j}")
+    if has_audio and layers:
+        labels = "".join(f"[{l}]" for l in layers)
+        parts.append(f"[outa]{labels}amix=inputs={1 + len(layers)}:"
+                     f"duration=first:dropout_transition=0:normalize=0[amx];")
         alabel = "amx"
 
     return "".join(parts).rstrip(";"), vlabel, alabel
@@ -180,16 +247,28 @@ def execute_program(
         subs_path = str(Path(tmp) / "subs.srt")
         write_srt(program.subtitles, subs_path)
 
-    graph, vlabel, alabel = _build_filtergraph(program, has_audio, subs_path)
+    # B-roll overlays need the main video's dimensions to scale to.
+    main_dims = None
+    if program.broll:
+        from ..validator.check import probe
+
+        info = probe(video_path)
+        main_dims = (info["width"], info["height"])
+
+    graph, vlabel, alabel = _build_filtergraph(program, has_audio, subs_path,
+                                               main_dims=main_dims)
     script = str(Path(tmp) / "graph.txt")
     Path(script).write_text(graph, encoding="utf-8")
 
-    # A background music track becomes a second, looped input.
-    music_track = program.music[0].track if (has_audio and program.music) else None
-
+    # Extra media files become inputs in _input_map's fixed order.
+    music_idx, sfx_idxs, _broll_idxs = _input_map(program, has_audio)
     cmd = [ffmpeg_bin(), "-y", "-i", video_path]
-    if music_track:
-        cmd += ["-stream_loop", "-1", "-i", music_track]
+    if music_idx is not None:
+        cmd += ["-stream_loop", "-1", "-i", program.music[0].track]
+    for sf, _ in zip(program.sfx, sfx_idxs):
+        cmd += ["-i", sf.sound]
+    for b in program.broll:
+        cmd += ["-i", b.path]
     cmd += [
         "-filter_complex_script", script,
         "-map", f"[{vlabel}]",
