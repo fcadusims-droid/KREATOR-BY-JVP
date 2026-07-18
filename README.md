@@ -41,7 +41,15 @@ Built on one signal-first pipeline:
 
 - **Condense** a long recording into its interesting parts (K Editor).
 - **Create vertical Shorts** from the top-ranked moments (K Clipper → 9:16
-  reframe that follows the action → render).
+  reframe that follows the action → render), with HUD-aware focus profiles
+  (`fps` anchors the crop at the crosshair; `follow` tracks off-center action).
+- **Read the game's own screen** (K GameSense): the whole frame is OCR'd —
+  any game, any HUD layout — and classified against a multi-game vocabulary
+  (kills, multikill medals, deaths, victories, objectives) plus novel
+  center-screen announcements. The moments the game itself celebrated get
+  boosted; the player dying on screen gets demoted — signal energy alone
+  cannot tell those apart. The announcer's voice (already in the transcript)
+  counts too. Degrades gracefully when tesseract isn't installed.
 - **Caption** with the creator's own words — plain subtitles or word-by-word
   **karaoke captions** (word-level Whisper timings burned via libass).
 - **Edit talking content** (vlog/podcast/class): recognized by speech coverage,
@@ -158,6 +166,7 @@ src/kreator/
   dsl/                # the edit as data: operations program + FFmpeg executor
   reframe/            # aspect reframing: focus-follow crop math for 9:16 Shorts
   shorts/             # ranked moments → finished vertical Shorts + manifest
+  gamesense/          # K GameSense: OCR the HUD → game events → viral scoring
   thumbnail/          # K Thumbnail: strongest real frames, treated, never generated
   director/           # autonomy: recognize content → preset → multi-deliverable job
   library/            # K Library: registry of the user's free-to-use assets

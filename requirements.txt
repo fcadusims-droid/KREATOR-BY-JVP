@@ -8,3 +8,6 @@ scenedetect>=0.6.3             # scene-cut signal (PySceneDetect, BSD-3)
 librosa>=0.10                  # audio energy signal (optional at runtime)
 soundfile>=0.12                # audio decoding backend for librosa
 faster-whisper>=1.0            # CPU dialogue transcription (K Editor --speech)
+pytesseract>=0.3.10            # K GameSense: reads the game's HUD text
+                               # (needs the tesseract binary: apt-get install
+                               # tesseract-ocr; degrades gracefully without it)
