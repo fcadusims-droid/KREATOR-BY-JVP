@@ -34,7 +34,10 @@ app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024  # 4 GB uploads
 
 WORK = ROOT / "web" / "_work"
 WORK.mkdir(parents=True, exist_ok=True)
-CACHE = WORK / "_cache"   # analysis cache shared across jobs
+CACHE = WORK / "_cache"       # analysis cache shared across jobs
+DATASET = WORK / "_dataset"   # the creator's verdicts + the taste model
+LABELS = DATASET / "labels.jsonl"
+TASTE_MODEL = DATASET / "model.json"
 
 # Optional K Library directory (real, free-to-use assets the user dropped in).
 LIBRARY_ROOT = os.environ.get("KREATOR_LIBRARY") or None
@@ -85,7 +88,9 @@ def _process(job_id: str, video_path: Path, req: JobRequest) -> None:
 
         manifest = run_job(str(video_path), str(out_dir), req,
                            library_root=LIBRARY_ROOT, vlm_backend=_VLM,
-                           cache_dir=str(CACHE), progress=progress)
+                           cache_dir=str(CACHE),
+                           taste_model_path=str(TASTE_MODEL),
+                           progress=progress)
         job["result"] = manifest
         job["dir"] = str(out_dir)
         job["stage"] = "done"
@@ -204,6 +209,9 @@ JOB_HTML = """<!doctype html><html><head><meta charset="utf-8">
  a.back{display:inline-block;margin-top:1rem;color:#8b93a7}
  .err{color:#f87171}
  .warn{color:#6b7280;font-size:.8rem;margin-top:1rem}
+ button.fb{background:#262a36;color:#e7e9ee;border:1px solid #394054;
+      border-radius:8px;padding:.35rem .7rem;margin:.2rem .3rem 0 0;cursor:pointer}
+ button.fb.on{background:#3b82f6;border-color:#3b82f6}
 </style></head><body><div class="card">
 <h1>🎬 Editing your video…</h1>
 <div id="body"><div class="spin"></div><div class="stage">Starting…</div></div>
@@ -221,6 +229,9 @@ updates itself, you can leave it open.</div>
        <div class="note">Kreator saw: <b>${u.label||''}</b> — ${u.preset_note||''}</div>`;
      const reqNotes=(m.request&&m.request.notes)||[];
      if(reqNotes.length) html+=`<ul class="why">${reqNotes.map(n=>`<li>${n}</li>`).join('')}</ul>`;
+     const agents=m.agents||[];
+     if(agents.length) html+=`<div class="stat" style="margin-top:.6rem"><b>The K Agents' chain:</b></div>
+       <ul class="why">${agents.map(a=>`<li><b>${a.agent}</b>: ${a.decision}${a.detail?` — <i>${a.detail}</i>`:''}</li>`).join('')}</ul>`;
      for(const d of (m.deliverables||[])){
        if(d.kind==='long_edit'){
          const why=(d.rationale||[]).map(r=>`<li>${r}</li>`).join('');
@@ -238,7 +249,11 @@ updates itself, you can leave it open.</div>
        } else {
          html+=`<div class="stat" style="margin-top:.8rem"><b>Short #${d.rank}</b>
            (${d.duration}s${d.aspect?', '+d.aspect:''}) — ${d.rationale||''}</div>
-           <a class="dl short" href="/job/${id}/file/${d.file}">⬇ ${d.file}</a>`;
+           <a class="dl short" href="/job/${id}/file/${d.file}">⬇ ${d.file}</a>
+           <div class="stat">Teach Kreator your taste:
+             <button class="fb" onclick="verdict('${d.file}',1,this)">👍 would post</button>
+             <button class="fb" onclick="verdict('${d.file}',0,this)">👎 not this</button>
+           </div>`;
        }
      }
      b.innerHTML=html; return;
@@ -249,6 +264,13 @@ updates itself, you can leave it open.</div>
    }
    b.innerHTML=`<div class="spin"></div><div class="stage">${j.stage}</div>`;
    setTimeout(poll,1500);
+ }
+ async function verdict(file,label,btn){
+   await fetch(`/job/${id}/feedback`,{method:'POST',
+     headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({file,label})});
+   for(const b of btn.parentElement.querySelectorAll('.fb')) b.classList.remove('on');
+   btn.classList.add('on');
  }
  poll();
 </script></body></html>"""
@@ -287,6 +309,36 @@ def job_status(job_id):
     if not job:
         return jsonify({"stage": "error", "error": "unknown job"}), 404
     return jsonify({k: v for k, v in job.items() if k != "dir"})
+
+
+@app.route("/job/<job_id>/feedback", methods=["POST"])
+def job_feedback(job_id):
+    """A 👍/👎 on a Short becomes a labeled example, and the taste model
+    retrains right away (sub-second at this scale) so the *next* job already
+    ranks with the creator's updated taste."""
+    from kreator.learn import (feature_vector, load_dataset, record_verdict,
+                               save_model, train)
+
+    job = JOBS.get(job_id)
+    body = request.get_json(silent=True) or {}
+    name, label = body.get("file"), body.get("label")
+    if not job or job.get("stage") != "done" or name is None or label not in (0, 1):
+        return jsonify({"error": "bad feedback"}), 400
+    short = next((d for d in job["result"].get("deliverables", [])
+                  if d.get("kind") == "short" and d.get("file") == name), None)
+    if short is None:
+        return jsonify({"error": "unknown short"}), 404
+
+    record_verdict(LABELS,
+                   feature_vector(short.get("signals", {}),
+                                  short.get("game_events", [])),
+                   int(label), meta={"job": job_id, "file": name})
+    X, y = load_dataset(LABELS)
+    model = train(X, y)
+    if model:
+        save_model(model, TASTE_MODEL)
+    return jsonify({"recorded": True, "examples": len(y),
+                    "model_trained": bool(model)})
 
 
 @app.route("/job/<job_id>/file/<name>")

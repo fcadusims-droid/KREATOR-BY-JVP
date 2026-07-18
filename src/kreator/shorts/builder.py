@@ -103,6 +103,7 @@ def make_shorts(
     bundle=None,
     focus_profile: str = "follow",
     gamesense: bool = True,
+    taste_model: dict | None = None,
     provenance_log: str | None = None,
     progress=lambda s: None,
 ) -> dict:
@@ -153,6 +154,13 @@ def make_shorts(
         window = [e for e in hud_events if span.start <= e.time <= span.end]
         window += announcer_events(transcript or [], span)
         delta, reasons = viral_adjustment(window)
+        if taste_model:
+            from ..learn import learned_adjustment
+            t_delta, t_reason = learned_adjustment(
+                taste_model, cand.breakdown.features, window)
+            delta += t_delta
+            if t_reason:
+                reasons.append(t_reason)
         scored.append((cand.score + delta, cand, span, window, reasons))
     # Re-rank on the event-adjusted score; original rank breaks ties.
     scored.sort(key=lambda x: (-x[0], x[1].rank))
@@ -199,6 +207,8 @@ def make_shorts(
             "source_span": {"start": round(span.start, 2), "end": round(span.end, 2)},
             "duration": round(span.duration, 2),
             "rationale": " ".join(rationale),
+            "signals": {k: round(v, 3)
+                        for k, v in cand.breakdown.features.items()},
             "game_events": [e.to_dict() for e in window],
             "subtitles": len(program.subtitles),
             "captions": len(program.captions),

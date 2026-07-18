@@ -9,7 +9,7 @@ background music bed from the K Library — each executed by the DSL runner.
 from __future__ import annotations
 
 from .captions import captions_from_transcript
-from .program import (CaptionStyle, Cut, EditProgram, Music, Reframe,
+from .program import (CaptionStyle, Cut, EditProgram, Grade, Music, Reframe,
                       Transition, Zoom)
 from .timeline import subtitles_from_transcript
 
@@ -43,6 +43,7 @@ def compose_program(
     aspect: str | None = None,
     reframe_strategy: str = "crop",
     focus_x: list[float] | None = None,
+    grade: str | None = None,
     rationale: list[str] | None = None,
 ) -> EditProgram:
     """Build the program. ``plan`` is a ``kreator.editor.EditPlan``;
@@ -103,5 +104,7 @@ def compose_program(
     return EditProgram(cuts=cuts, subtitles=subs, captions=caps,
                        caption_style=caption_style if caps else None,
                        zooms=zooms, transitions=trans,
-                       music=music, reframe=reframe, height=height,
+                       music=music, reframe=reframe,
+                       grade=Grade(grade) if grade else None,
+                       height=height,
                        rationale=list(rationale or []))
