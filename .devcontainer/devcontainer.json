@@ -1,7 +1,7 @@
 {
   "name": "Kreator",
   "image": "mcr.microsoft.com/devcontainers/python:3.11",
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y ffmpeg && pip install -r requirements.txt -r requirements-web.txt",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y ffmpeg tesseract-ocr && pip install -r requirements.txt -r requirements-web.txt",
   "forwardPorts": [5000],
   "portsAttributes": {
     "5000": { "label": "Kreator UI", "onAutoForward": "openBrowser" }

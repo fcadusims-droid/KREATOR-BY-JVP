@@ -87,6 +87,7 @@ def make_shorts(
     transcript: list | None = None,
     bundle=None,
     focus_profile: str = "follow",
+    gamesense: bool = True,
     provenance_log: str | None = None,
     progress=lambda s: None,
 ) -> dict:
@@ -95,9 +96,13 @@ def make_shorts(
     Returns a manifest dict (also written to ``out_dir/shorts.json``): one entry
     per Short with its file, source span, score, rationale, and validation.
     ``bundle`` lets a caller reuse an existing signal analysis; ``transcript``
-    (source-time SpeechSegments) enables burned captions.
+    (source-time SpeechSegments) enables burned captions. With ``gamesense``
+    the game's own screen (and the announcer, via the transcript) re-scores
+    the candidates: a multikill medal boosts a moment, the player dying on
+    screen sinks it — signal energy alone cannot tell those apart.
     """
     from ..evidence import KAnalyst
+    from ..gamesense import announcer_events, read_screen_events, viral_adjustment
     from ..planner import KClipper
     from ..reframe import cut_focus_centers
     from ..signal_layer import analyze_video
@@ -119,16 +124,33 @@ def make_shorts(
     # (seen on real footage: moments 8s apart became near-identical 15s
     # Shorts). Dedup happens *after* fitting, so extras fill the gaps.
     pool = KClipper().rank(evidences, top_n=top_n * 3)
+    pool_spans = [fit_span(c.span, bundle.duration, spec) for c in pool]
 
-    candidates, fitted = [], []
-    for cand in pool:
-        span = fit_span(cand.span, bundle.duration, spec)
+    # GameSense pass: what did the game itself say happened in each window?
+    hud_events: list = []
+    if gamesense and pool_spans:
+        progress("Reading the game's screen (OCR over candidate windows)…")
+        hud_events = read_screen_events(
+            video_path, [(s.start, s.end) for s in pool_spans])
+
+    scored = []
+    for cand, span in zip(pool, pool_spans):
+        window = [e for e in hud_events if span.start <= e.time <= span.end]
+        window += announcer_events(transcript or [], span)
+        delta, reasons = viral_adjustment(window)
+        scored.append((cand.score + delta, cand, span, window, reasons))
+    # Re-rank on the event-adjusted score; original rank breaks ties.
+    scored.sort(key=lambda x: (-x[0], x[1].rank))
+
+    candidates, fitted, extras = [], [], []
+    for adj, cand, span, window, reasons in scored:
         # Over a third of shared footage reads as the same Short twice.
         if any(span.intersection(f) / max(span.duration, 1e-6) > 0.35
                for f in fitted):
             continue
         candidates.append(cand)
         fitted.append(span)
+        extras.append((adj, window, reasons))
         if len(candidates) >= top_n:
             break
     focus = [0.5] * len(fitted)
@@ -139,11 +161,13 @@ def make_shorts(
                                   profile=focus_profile)
 
     entries = []
-    for i, (cand, span) in enumerate(zip(candidates, fitted), start=1):
+    for i, (cand, span, (adj, window, reasons)) in enumerate(
+            zip(candidates, fitted, extras), start=1):
         progress(f"Rendering Short {i}/{len(candidates)}…")
+        rationale = [f"Signal rank #{cand.rank}: {cand.rationale}"] + reasons
         program = build_short_program(
             span, spec, focus_x=focus[i - 1], transcript=transcript,
-            rationale=[f"Rank #{cand.rank}: {cand.rationale}"])
+            rationale=rationale)
         dest = str(out / f"short_{i:02d}.mp4")
         execute_program(video_path, program, dest, has_audio=has_audio)
         report = validate_render(dest, program, has_audio=has_audio)
@@ -153,11 +177,14 @@ def make_shorts(
                           output_path=dest, program=program.to_dict())
         entries.append({
             "file": Path(dest).name,
-            "rank": cand.rank,
-            "score": cand.score,
+            "rank": i,
+            "signal_rank": cand.rank,
+            "score": round(adj, 3),
+            "signal_score": cand.score,
             "source_span": {"start": round(span.start, 2), "end": round(span.end, 2)},
             "duration": round(span.duration, 2),
-            "rationale": cand.rationale,
+            "rationale": " ".join(rationale),
+            "game_events": [e.to_dict() for e in window],
             "subtitles": len(program.subtitles),
             "captions": len(program.captions),
             "aspect": spec.aspect,
