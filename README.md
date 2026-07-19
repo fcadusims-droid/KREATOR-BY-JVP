@@ -122,18 +122,20 @@ today: `cut` (with per-segment `speed` — 0.5× slow motion, audio
 tempo-matched), `subtitle` (the creator's own transcribed dialogue, remapped to
 the edited timeline), `caption` (word-by-word karaoke, word timings remapped
 individually), `zoom` (punch-in on the action), `punch_zoom` (a zoom *pulse*
-that snaps at the event and eases out), `shake` (impact jitter, gated to its
-window), `grade` (named color treatments), `transition` (crossfade),
-`music` (a background track from the **K Library** of free-to-use assets, mixed
-under the audio), `sfx` (a library one-shot mixed in at an instant, without
-lowering the creator's own audio), `broll` (a library clip overlaid as a
-cutaway for its window, scaled to the frame, while the main audio continues),
-and `reframe` (recrop to another aspect — `--aspect 9:16` turns the edit
-vertical for Shorts, with the crop window following the action's motion, or
-`--reframe pad` to fit with bars). A **K Validator** step checks the render
-matches the plan — duration, streams, and aspect — before it's handed over,
-and every render appends a provenance record tracing it back to the source
-footage.
+that snaps at the event and eases out), `ken_burns` (a slow continuous
+zoom/pan over a held or scenic shot), `shake` (impact jitter, gated to its
+window), `color_fix` (auto white-balance + exposure) and `grade` (named color
+treatments), `transition` (crossfade), `music` (a background track from the
+**K Library** of free-to-use assets, optionally ducked under the voice), `sfx`
+(a library one-shot mixed in at an instant, without lowering the creator's own
+audio), `broll` (a library clip overlaid as a cutaway for its window, scaled
+to the frame, while the main audio continues), and `reframe` (recrop to
+another aspect — `--aspect 9:16` turns the edit vertical for Shorts, with the
+crop window following the action's motion, the speaker's face, or a fixed
+center, or `--reframe pad` to fit with bars). A **K Validator** step checks the
+render matches the plan — duration, streams, and aspect — before it's handed
+over, and every render appends a provenance record tracing it back to the
+source footage.
 
 The reasoning — the model *plans* an intermediate representation (timeline +
 operations + justifications) and a deterministic executor runs it, rather than a
@@ -200,6 +202,8 @@ src/kreator/
   story/              # K Story: clippable moments from the transcript (talking)
   motion/             # K Motion: slow-mo/pulse/shake/grade planned on the events
   montage/            # K Montage: Ken Burns, auto b-roll, music ducking
+  narrative/          # K Narrative: chapters by topic turn + hook detection
+  polish/             # K Polish: auto white-balance + exposure (real footage)
   learn/              # K Learn: the creator's taste model (verdicts → ranking)
   thumbnail/          # K Thumbnail: strongest real frames, treated, never generated
   director/           # autonomy: recognize content → preset → multi-deliverable job

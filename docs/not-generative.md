@@ -16,12 +16,16 @@ reassembles* the creator's own material.
 | Reorder / condense real segments | Text-to-image / text-to-video of anything |
 | Pick a real frame for a thumbnail, crop it, add text | Invent a facial expression, weapon, or setting |
 | Transcribe the real dialogue that was spoken | Put words in anyone's mouth |
-| Recognize what game it is, to edit it well | Change what actually happened |
+| Recognize the game, or read the HUD/faces, to edit well | Change what actually happened |
+| Crop to the speaker's face, colour-correct real pixels | Synthesize a face, or "improve" it into something else |
 
-Its understanding models (Whisper for speech, SmolVLM for scenes) are used only
-to **describe** the real footage so the deterministic Planner can decide how to
-cut it. They never generate output content. *The AI describes; the Planner
-decides; the footage is the creator's.*
+Its understanding models — Whisper for speech, SmolVLM for scenes, YuNet for
+faces, tesseract for on-screen text — are used only to **describe** the real
+footage so the deterministic Planner can decide how to cut it. Even the
+optional local LLM that scores which spoken lines to clip only *reads* the
+creator's transcript; it never writes a word of new dialogue. They never
+generate output content. *The AI describes; the Planner decides; the footage
+is the creator's.*
 
 ## The one allowed addition: free-to-use assets (opt-in)
 

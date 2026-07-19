@@ -1,11 +1,14 @@
 """Execute an EditProgram with FFmpeg — the deterministic operations runner.
 
-Today it runs the `cut` spine (trim/concat, frame-accurate), burns `subtitle`
-overlays (libass) and word-level `caption` karaoke, applies `zoom` punch-ins
-and `transition` crossfades, mixes a `music` bed and `sfx` one-shots under the
-audio, overlays `broll` cutaways (real K Library clips, scaled to the frame),
-reframes to a target aspect (`reframe`: 9:16 Shorts via focus-aware crop or
-pad), and scales to the target height.
+Today it runs the `cut` spine (trim/concat, frame-accurate, per-segment
+`speed` for slow motion with tempo-matched audio), burns `subtitle` overlays
+(libass) and word-level `caption` karaoke, applies `zoom`/`punch_zoom` and
+`ken_burns` moves (one combined zoompan), `shake`, `transition` crossfades,
+`color_fix` white-balance/exposure and a stylistic `grade`, mixes a `music`
+bed (optionally ducked under the voice) and `sfx` one-shots, overlays `broll`
+cutaways (real K Library clips scaled to the frame), reframes to a target
+aspect (`reframe`: 9:16 Shorts via focus-aware crop or pad), and scales to the
+target height.
 """
 
 from __future__ import annotations
