@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Kreator web frontend — autonomous by default, guided when you want it.
 
-Upload a video and Kreator edits it on its own (recognizes the content, picks
-a style, cuts, captions). Optionally, guide it: ask for vertical Shorts, set
-the cut intensity, choose the caption style — or just *type what you want* in
-plain language and the deterministic parser fills the same form. One upload can
-produce several deliverables (the full edit + N Shorts) from a single analysis.
+Upload any video and Kreator edits it on its own (recognizes whether it's
+gameplay, a vlog, a documentary…, picks a style, cuts, captions). Optionally,
+guide it: choose a style template (simple → cinematic), ask for vertical
+Shorts, set the cut intensity — or just *type what you want* in plain language
+and the deterministic parser fills the same form. One upload can produce
+several deliverables (the full edit + N Shorts) from a single analysis.
 Everything runs locally and offline — no GPU, no API.
 
     python web/app.py            # then open the forwarded port (5000)
@@ -51,6 +52,12 @@ def _request_from_form(form) -> JobRequest:
     the explicit controls override it."""
     text = (form.get("instruction") or "").strip()
     req = parse_instruction(text) if text else JobRequest()
+
+    # A template is the simple → cinematic dial; explicit controls below still
+    # win over it (the template only fills what the creator left on auto).
+    if form.get("template") in ("simple", "vlog", "tutorial", "cinematic",
+                                "montage"):
+        req.template = form["template"]
 
     if form.get("outputs") == "long":
         req.long_edit, req.shorts = True, req.shorts if text else 0
@@ -135,6 +142,15 @@ own — or tell it what you want. Local &amp; offline.</div>
  <textarea name="instruction" placeholder='e.g. "make 3 shorts of ~30 seconds with animated captions, no music"'></textarea>
  <details><summary>Guided options</summary>
   <div class="row">
+   <div><label>Style template (simple → cinematic)</label>
+    <select name="template">
+     <option value="">Auto (by content)</option>
+     <option value="simple">Simple — barely touched</option>
+     <option value="vlog">Vlog — clean, animated captions</option>
+     <option value="tutorial">Tutorial — keep every step</option>
+     <option value="cinematic">Cinematic — Ken Burns, grade, music</option>
+     <option value="montage">Montage — tight, slow-mo, effects</option>
+    </select></div>
    <div><label>Deliverables</label>
     <select name="outputs">
      <option value="">Auto</option>
