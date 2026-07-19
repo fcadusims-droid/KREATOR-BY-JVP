@@ -32,16 +32,20 @@ from .content import EDITING_PRESETS, detect_content
 _KEEP_BY_INTENSITY = {"light": 0.55, "medium": 0.40, "heavy": 0.28}
 
 # Which crop policy fits which recognized content: HUD-centered shooters keep
-# the crosshair (center-anchored), talking content tracks the speaker's face,
-# everything else follows the action.
-_FOCUS_BY_GENRE = {"shooter": "fps", "talking": "face"}
+# the crosshair, people-led content tracks the speaker's face, everything else
+# follows the action.
+_FOCUS_BY_GENRE = {"shooter": "fps",
+                   "talking": "face", "vlog": "face", "tutorial": "face",
+                   "documentary": "follow", "travel": "follow"}
 
 # Which K Motion style fits which recognized content. Shooters get the
-# aggressive montage; open-world action reads better cinematic; story/mission
-# and talking content stay clean (the "you cut too much" feedback again).
+# aggressive montage; open-world action and travel read cinematic; story,
+# talking, vlog, and tutorial stay clean (the "you cut too much" feedback).
 _STYLE_BY_GENRE = {"shooter": "montage", "action_gameplay": "cinematic",
                    "driving": "cinematic", "sports": "cinematic",
-                   "gta_heist": "clean", "talking": "clean"}
+                   "gta_heist": "clean", "talking": "clean", "vlog": "clean",
+                   "tutorial": "clean", "documentary": "cinematic",
+                   "travel": "cinematic"}
 
 
 def _focus_profile(profile) -> str:
@@ -157,6 +161,46 @@ def _needs_transcript(req: JobRequest, preset: dict, has_audio: bool) -> bool:
     if req.captions in ("plain", "karaoke"):
         return True
     return bool(preset["keep_dialogue"] or req.shorts)
+
+
+def _music_ratio(bundle) -> float | None:
+    """Fraction of audible time that is music/ambient rather than speech —
+    high audio energy where no speech is present. None if there's no audio."""
+    if not bundle.audio:
+        return None
+    audible = [i for i, a in enumerate(bundle.audio) if a > 0.05]
+    if not audible:
+        return None
+    speech = bundle.speech or [0.0] * len(bundle.audio)
+    music = sum(1 for i in audible if i >= len(speech) or speech[i] < 0.5)
+    return music / len(audible)
+
+
+def _has_persistent_face(video_path: str, duration: float,
+                         *, samples: int = 6) -> bool | None:
+    """Did a face show up across sampled frames? None when face detection is
+    unavailable (then the Director just doesn't use this cue)."""
+    from ..vision import FaceDetector
+
+    det = FaceDetector()
+    if not det.available:
+        return None
+    try:
+        import cv2  # type: ignore
+    except Exception:
+        return None
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None
+    hits = 0
+    for k in range(samples):
+        t = duration * (k + 0.5) / samples
+        cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+        ok, frame = cap.read()
+        if ok and det.detect(frame):
+            hits += 1
+    cap.release()
+    return hits >= max(2, samples // 3)   # a face in a third+ of samples
 
 
 def _agent(log: list, name: str, decision: str, detail: str = "") -> None:
@@ -324,20 +368,26 @@ def run_job(
         transcript = _cached_transcript(video_path, cache, want_words,
                                         req.language, progress)
 
-        # With the transcript in hand, the Director can recognize *talking*
-        # content (vlog/podcast) — an edit driven by speech, not by action.
+        # With the transcript in hand, the Director re-recognizes the content
+        # family — vlog / documentary / tutorial / travel, not just gameplay —
+        # using speech coverage, whether a face persists, and music vs voice.
         if transcript and und.bundle.duration > 0:
             ratio = sum(s.end - s.start for s in transcript) / und.bundle.duration
-            better = detect_content([lab.description for lab in und.labels],
-                                    speech_ratio=ratio)
+            has_faces = _has_persistent_face(video_path, und.bundle.duration)
+            better = detect_content(
+                [lab.description for lab in und.labels], speech_ratio=ratio,
+                has_faces=has_faces, music_ratio=_music_ratio(und.bundle))
             if better.preset != und.profile.preset:
                 progress(f"Re-recognized as {better.label} "
                          f"({ratio:.0%} of it is speech).")
                 und.profile = better
                 preset = EDITING_PRESETS[better.preset]
+                style = (req.style if req.style != "auto"
+                         else _STYLE_BY_GENRE.get(better.genre, "clean"))
                 _agent(agents, "K Director",
                        f"re-recognized as {better.label} "
-                       f"({ratio:.0%} speech coverage)")
+                       f"({ratio:.0%} speech" +
+                       (", face on screen" if has_faces else "") + ")")
 
     prov_log = str(out / "provenance.jsonl")
     deliverables: list[dict] = []

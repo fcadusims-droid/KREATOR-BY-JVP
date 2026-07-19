@@ -34,6 +34,17 @@ _GENRE_KEYWORDS: dict[str, tuple[str, ...]] = {
                 "person sitting", "microphone", "webcam", "podcast",
                 "person in front of", "talking to the camera",
                 "close-up of a face", "interview"),
+    # Real-world (non-gameplay) scene cues, for the content-family classifier.
+    "scenic": ("landscape", "mountain", "ocean", "beach", "sunset", "sunrise",
+               "forest", "nature", "river", "field", "sky", "horizon",
+               "scenery", "aerial", "drone shot", "waterfall", "desert"),
+    "travel": ("street", "market", "temple", "tourist", "airport", "hotel",
+               "train", "map", "passport", "landmark", "old town", "plaza"),
+    "food": ("food", "cooking", "kitchen", "plate", "dish", "restaurant",
+             "chef", "recipe", "meal", "ingredients"),
+    "tutorial": ("screen", "keyboard", "hands", "desk", "whiteboard", "diagram",
+                 "step", "close-up of hands", "tool", "workbench", "tutorial"),
+    "people": ("person", "people", "man", "woman", "crowd", "face", "group"),
 }
 
 
@@ -76,17 +87,94 @@ EDITING_PRESETS: dict[str, dict] = {
     "talking": {"target_keep": 0.85, "keep_dialogue": True, "min_cut": 0.8,
                 "zoom": False, "music": None,
                 "note": "keeps the speech, cuts pauses and dead air"},
+    # Vlog: speech-driven like talking, but a touch tighter and open to a
+    # music bed and gentle punch-ins on the speaker.
+    "vlog": {"target_keep": 0.8, "keep_dialogue": True, "min_cut": 0.8,
+             "zoom": True, "music": "upbeat",
+             "note": "keeps the story, trims dead air, light energy"},
+    # Documentary: narration over b-roll — keep the voice, hold scenic shots,
+    # no flashy cuts; the montage layer adds b-roll and slow moves.
+    "documentary": {"target_keep": 0.8, "keep_dialogue": True, "min_cut": 1.0,
+                    "zoom": False, "music": "cinematic",
+                    "note": "narration-led, holds scenic shots, no flashy cuts"},
+    # Tutorial: keep every spoken step, cut only real dead air, no effects
+    # that distract from what's being shown.
+    "tutorial": {"target_keep": 0.9, "keep_dialogue": True, "min_cut": 0.8,
+                 "zoom": False, "music": None,
+                 "note": "keeps every step, cuts only dead air"},
+    # Travel / cinematic: visual-led, hold the best shots, cut on motion, a
+    # music bed carries it; speech is secondary.
+    "travel": {"target_keep": 0.45, "keep_dialogue": False, "min_cut": 2.0,
+               "zoom": True, "music": "cinematic",
+               "note": "visual-led montage of the best shots, music-carried"},
 }
 
 
-def detect_content(
-    descriptions: list[str], speech_ratio: float | None = None
-) -> ContentProfile:
-    """Infer genre + preset from VLM scene descriptions.
+def _classify_family(
+    scores: dict, tags: list, speech_ratio: float | None,
+    has_faces: bool | None, music_ratio: float | None,
+) -> ContentProfile | None:
+    """Recognize a *real-world* content family (not gameplay), or None to let
+    the gameplay-genre logic decide. Uses scene cues + how much of it is
+    speech + whether a face persists on screen + how much is music.
 
-    ``speech_ratio`` (spoken time / duration, when a transcript exists) lets
-    the Director recognize *talking* content — a vlog or podcast is defined by
-    someone talking most of the time, which descriptions alone can miss.
+    The distinctions that matter for the edit:
+    - documentary : narration (speech) but few faces (voiceover over b-roll)
+    - vlog        : speech + a persistent face (someone talking to camera)
+    - tutorial    : speech + screen/hands/desk cues
+    - travel      : scenic/travel visuals, little speech, music-carried
+    """
+    speech = speech_ratio if speech_ratio is not None else 0.0
+    scenic = scores["scenic"] + scores["travel"]
+    talky_visual = scores["talking"] + scores["people"]
+    tutorial = scores["tutorial"]
+
+    # Defer to the gameplay-genre logic only when game cues actually dominate
+    # the real-world cues — some words ("street", "map") legitimately appear in
+    # both a driving game and a travel vlog, so a bare count isn't enough.
+    game_signal = (scores["heist_mission"] + scores["combat"]
+                   + scores["driving"] + scores["sports"])
+    realworld_signal = scenic + talky_visual + tutorial
+    if game_signal >= 2 and game_signal >= realworld_signal:
+        return None
+
+    # Speech-led families.
+    if speech >= 0.45:
+        if scores["tutorial"] >= 2:
+            return ContentProfile("tutorial", "Tutorial / how-to",
+                                  tags, preset="tutorial")
+        # A persistent face → someone addressing the camera (vlog); narration
+        # without a steady face → documentary voiceover over footage.
+        if has_faces is False and scenic >= 2:
+            return ContentProfile("documentary", "Documentary / narration",
+                                  tags, preset="documentary")
+        if has_faces or talky_visual >= 1 or speech >= 0.7:
+            return ContentProfile("vlog", "Vlog / talking content",
+                                  tags, preset="vlog")
+        return ContentProfile("talking", "Talking content",
+                              tags, preset="talking")
+
+    # Visual-led families (little speech).
+    if scenic >= 2 and (music_ratio is None or music_ratio >= 0.3):
+        return ContentProfile("travel", "Travel / cinematic",
+                              tags, preset="travel")
+    if scenic >= 3:
+        return ContentProfile("travel", "Scenic / cinematic",
+                              tags, preset="travel")
+    return None
+
+
+def detect_content(
+    descriptions: list[str], speech_ratio: float | None = None,
+    *, has_faces: bool | None = None, music_ratio: float | None = None,
+) -> ContentProfile:
+    """Infer the content profile (family/genre + preset) from what Kreator
+    understood about the video.
+
+    ``speech_ratio`` (spoken time / duration) and ``has_faces`` (K Vision saw a
+    persistent face) and ``music_ratio`` (music vs voice) let the Director
+    recognize real-world content — vlog, documentary, tutorial, travel — not
+    just gameplay genres. Any of them may be None (not yet computed).
     """
     text = " ".join(descriptions).lower()
     scores = {
@@ -95,13 +183,16 @@ def detect_content(
     }
     tags = [g for g, s in scores.items() if s > 0]
 
+    family = _classify_family(scores, tags, speech_ratio, has_faces, music_ratio)
+    if family is not None:
+        return family
+
     heist = scores["heist_mission"]
     combat = scores["combat"]
     driving = scores["driving"]
     sports = scores["sports"]
 
-    # Talking content: mostly speech, or clear talking-head visuals with
-    # meaningful speech coverage and no stronger game signal.
+    # Talking content over gameplay footage: mostly speech, no strong game cue.
     game_signal = heist + combat + driving + sports
     if speech_ratio is not None and (
         speech_ratio >= 0.7
