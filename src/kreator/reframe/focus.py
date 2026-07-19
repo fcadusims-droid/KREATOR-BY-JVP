@@ -37,6 +37,9 @@ FOCUS_PROFILES: dict[str, dict | None] = {
                "center_weight": 0.3, "max_offset": 0.35},
     # Fixed center crop — no video reads at all.
     "center": None,
+    # Talking content: track the speaker's face (K Vision), not motion. Falls
+    # back to "follow" when no face model / no face is present.
+    "face": "face",
 }
 
 
@@ -50,13 +53,22 @@ def cut_focus_centers(
 ) -> list[float]:
     """Return one normalized horizontal focus (0..1) per ``(start, end)`` span.
 
-    ``profile`` names a FOCUS_PROFILES policy (``fps``/``follow``/``center``).
-    ``samples_per_span`` instants are spread evenly inside each span; at each,
-    the frame and the one ``frame_gap`` frames later are diffed. Spans where
-    nothing readable moves fall back to 0.5 (center crop).
+    ``profile`` names a FOCUS_PROFILES policy: ``fps``/``follow`` track motion
+    (HUD-masked / center-weighted), ``center`` is a fixed center crop, and
+    ``face`` tracks the speaker's face (falling back to ``follow`` when face
+    detection is unavailable). ``samples_per_span`` instants are spread evenly
+    inside each span; for motion profiles the frame and the one ``frame_gap``
+    frames later are diffed.
     """
     if not spans:
         return []
+    if profile == "face":
+        from ..vision import face_focus_centers
+
+        faces = face_focus_centers(video_path, spans)
+        if faces is not None:
+            return faces
+        profile = "follow"  # no faces here → track motion instead
     policy = FOCUS_PROFILES.get(profile, FOCUS_PROFILES["follow"])
     if policy is None:  # "center"
         return [0.5] * len(spans)

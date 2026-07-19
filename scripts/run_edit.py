@@ -67,10 +67,10 @@ def main() -> int:
                     help="with --aspect: 'crop' follows the action inside a "
                          "real-pixel window, 'pad' fits the frame with bars")
     ap.add_argument("--focus", default="follow",
-                    choices=["fps", "follow", "center"],
+                    choices=["fps", "follow", "center", "face"],
                     help="crop policy for --aspect: 'fps' anchors near the "
-                         "crosshair, 'follow' tracks the action, 'center' is "
-                         "a fixed center crop")
+                         "crosshair, 'follow' tracks the action, 'face' tracks "
+                         "the speaker, 'center' is a fixed center crop")
     ap.add_argument("-o", "--out", default="out/edited.mp4",
                     help="edited video output path")
     ap.add_argument("--plan-out", default=None, help="edit-plan JSON output path")

@@ -32,8 +32,9 @@ from .content import EDITING_PRESETS, detect_content
 _KEEP_BY_INTENSITY = {"light": 0.55, "medium": 0.40, "heavy": 0.28}
 
 # Which crop policy fits which recognized content: HUD-centered shooters keep
-# the crosshair (center-anchored), everything else follows the action.
-_FOCUS_BY_GENRE = {"shooter": "fps"}
+# the crosshair (center-anchored), talking content tracks the speaker's face,
+# everything else follows the action.
+_FOCUS_BY_GENRE = {"shooter": "fps", "talking": "face"}
 
 # Which K Motion style fits which recognized content. Shooters get the
 # aggressive montage; open-world action reads better cinematic; story/mission
