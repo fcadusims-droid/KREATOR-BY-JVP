@@ -154,6 +154,25 @@ class Grade:
 
 
 @dataclass(frozen=True)
+class ColorFix:
+    """Auto white-balance + exposure correction from measured statistics —
+    per-channel gains (gray-world) and a brightness lift. Corrects real
+    pixels toward neutral; invents nothing. Applied before any stylistic
+    Grade so the grade sits on a corrected base."""
+    r_gain: float = 1.0
+    g_gain: float = 1.0
+    b_gain: float = 1.0
+    brightness: float = 0.0    # eq brightness, -1..1
+    reason: str = ""
+
+    def to_dict(self) -> dict:
+        return {"type": "color_fix",
+                "r_gain": round(self.r_gain, 3), "g_gain": round(self.g_gain, 3),
+                "b_gain": round(self.b_gain, 3),
+                "brightness": round(self.brightness, 3), "reason": self.reason}
+
+
+@dataclass(frozen=True)
 class Transition:
     """A transition at an edited-timeline instant."""
     at: float
@@ -273,6 +292,7 @@ class EditProgram:
     punch_zooms: list[PunchZoom] = field(default_factory=list)
     ken_burns: list[KenBurns] = field(default_factory=list)
     shakes: list[Shake] = field(default_factory=list)
+    color_fix: ColorFix | None = None
     grade: Grade | None = None
     transitions: list[Transition] = field(default_factory=list)
     music: list[Music] = field(default_factory=list)
@@ -301,6 +321,7 @@ class EditProgram:
                 + [p.to_dict() for p in self.punch_zooms]
                 + [k.to_dict() for k in self.ken_burns]
                 + [s.to_dict() for s in self.shakes]
+                + ([self.color_fix.to_dict()] if self.color_fix else [])
                 + ([self.grade.to_dict()] if self.grade else [])
                 + [t.to_dict() for t in self.transitions]
                 + [m.to_dict() for m in self.music]
