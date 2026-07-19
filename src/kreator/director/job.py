@@ -67,6 +67,8 @@ class JobRequest:
     shorts: int = 0                  # how many vertical Shorts to also produce
     thumbnails: int = 1              # thumbnail candidates from real frames
     title_text: str | None = None    # creator's own title drawn on thumbnails
+    template: str = "auto"           # editing doctrine: auto|simple|vlog|
+                                     # tutorial|cinematic|montage
     aspect: str | None = None        # long-edit aspect (None = keep source)
     captions: str = "auto"           # auto | none | plain | karaoke
     language: str | None = None      # spoken-language ISO code; None = detect
@@ -368,6 +370,11 @@ def run_job(
     the analysis so *future* runs on the same video skip it too.
     """
     req = req or JobRequest()
+    # A chosen template fills the knobs the creator left on 'auto', before the
+    # Director's content-based auto-selection runs.
+    from .templates import apply_template
+    template_notes = apply_template(req, req.template) if req.template != "auto" \
+        else []
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     cache = AnalysisCache(cache_dir) if cache_dir else None
@@ -383,6 +390,8 @@ def run_job(
     preset = EDITING_PRESETS[und.profile.preset]
 
     agents: list[dict] = []
+    if template_notes:
+        _agent(agents, "K Director", template_notes[0])
     style = (req.style if req.style != "auto"
              else _STYLE_BY_GENRE.get(und.profile.genre, "clean"))
     _agent(agents, "K Director",

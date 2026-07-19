@@ -31,6 +31,11 @@ def main() -> int:
     ap.add_argument("--aspect", default=None, choices=["9:16", "1:1"])
     ap.add_argument("--captions", default=None,
                     choices=["auto", "none", "plain", "karaoke"])
+    ap.add_argument("--template", default=None,
+                    choices=["auto", "simple", "vlog", "tutorial",
+                             "cinematic", "montage"],
+                    help="editing doctrine (simple → cinematic); fills the "
+                         "knobs you don't set explicitly")
     ap.add_argument("--intensity", default=None,
                     choices=["auto", "light", "medium", "heavy"])
     ap.add_argument("--language", default=None,
@@ -43,6 +48,8 @@ def main() -> int:
     args = ap.parse_args()
 
     req = parse_instruction(args.instruction) if args.instruction else JobRequest()
+    if args.template:
+        req.template = args.template
     if args.no_long_edit:
         req.long_edit = False
     if args.shorts is not None:

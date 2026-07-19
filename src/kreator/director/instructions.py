@@ -134,13 +134,18 @@ def parse_instruction(text: str) -> JobRequest:
         req.music = False
         notes.append("no music bed")
 
-    # Editing style (K Motion preset).
+    # Editing template / style (the simple → cinematic dial).
     if re.search(r"cinematogr[aá]fic|cinematic", t):
+        req.template = "cinematic"
         req.style = "cinematic"
-        notes.append("cinematic style")
+        notes.append("cinematic template")
     elif re.search(r"montage|montagem|ediç[aã]o pesada|heavy edit", t):
+        req.template = "montage"
         req.style = "montage"
-        notes.append("aggressive montage style")
+        notes.append("aggressive montage template")
+    elif re.search(r"simples|\bsimple\b|b[aá]sic[oa]|minimal", t):
+        req.template = "simple"
+        notes.append("simple template")
     elif re.search(r"sem efeitos|no effects|\braw\b|\bclean\b", t):
         req.style = "clean"
         notes.append("clean style (color only)")
