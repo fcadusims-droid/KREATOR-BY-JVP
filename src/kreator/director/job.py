@@ -52,6 +52,14 @@ def _focus_profile(profile) -> str:
     return _FOCUS_BY_GENRE.get(profile.genre, "follow")
 
 
+# Content whose clippable moments live in the transcript, not in signal energy.
+_SPEECH_LED = {"talking", "vlog", "documentary", "tutorial"}
+
+
+def _moment_source(profile) -> str:
+    return "speech" if profile.genre in _SPEECH_LED else "signal"
+
+
 @dataclass
 class JobRequest:
     """What the creator asked for. Defaults reproduce the autonomous edit."""
@@ -410,19 +418,26 @@ def run_job(
                 _agent(agents, "K Memory",
                        f"taste model loaded ({taste['n_examples']} judged "
                        f"clips, train acc {taste['train_accuracy']:.0%})")
+        source = _moment_source(und.profile)
         shorts_manifest = make_shorts(
             video_path, str(out), top_n=req.shorts, spec=spec,
             transcript=transcript, bundle=und.bundle,
-            focus_profile=_focus_profile(und.profile), taste_model=taste,
+            focus_profile=_focus_profile(und.profile),
+            moment_source=source, taste_model=taste,
             progress=progress, provenance_log=prov_log)
         shorts = shorts_manifest["shorts"]
-        n_events = sum(len(s.get("game_events", [])) for s in shorts)
-        _agent(agents, "K GameSense",
-               f"read {n_events} on-screen/announcer event(s) across the "
-               f"candidate windows")
-        _agent(agents, "K Clipper",
-               f"ranked a {req.shorts * 3}-candidate pool, delivered "
-               f"{len(shorts)} distinct moment(s), event-adjusted")
+        if source == "speech":
+            _agent(agents, "K Story",
+                   f"found the top spoken moments in the transcript, "
+                   f"delivered {len(shorts)} distinct clip(s)")
+        else:
+            n_events = sum(len(s.get("game_events", [])) for s in shorts)
+            _agent(agents, "K GameSense",
+                   f"read {n_events} on-screen/announcer event(s) across the "
+                   f"candidate windows")
+            _agent(agents, "K Clipper",
+                   f"ranked a {req.shorts * 3}-candidate pool, delivered "
+                   f"{len(shorts)} distinct moment(s), event-adjusted")
         _agent(agents, "K Motion",
                f"'{style}' treatment on the Shorts "
                f"(slow-mo/pulses/shake keyframed on the events)")
