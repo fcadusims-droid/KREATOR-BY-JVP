@@ -32,19 +32,32 @@ from .content import EDITING_PRESETS, detect_content
 _KEEP_BY_INTENSITY = {"light": 0.55, "medium": 0.40, "heavy": 0.28}
 
 # Which crop policy fits which recognized content: HUD-centered shooters keep
-# the crosshair (center-anchored), everything else follows the action.
-_FOCUS_BY_GENRE = {"shooter": "fps"}
+# the crosshair, people-led content tracks the speaker's face, everything else
+# follows the action.
+_FOCUS_BY_GENRE = {"shooter": "fps",
+                   "talking": "face", "vlog": "face", "tutorial": "face",
+                   "documentary": "follow", "travel": "follow"}
 
 # Which K Motion style fits which recognized content. Shooters get the
-# aggressive montage; open-world action reads better cinematic; story/mission
-# and talking content stay clean (the "you cut too much" feedback again).
+# aggressive montage; open-world action and travel read cinematic; story,
+# talking, vlog, and tutorial stay clean (the "you cut too much" feedback).
 _STYLE_BY_GENRE = {"shooter": "montage", "action_gameplay": "cinematic",
                    "driving": "cinematic", "sports": "cinematic",
-                   "gta_heist": "clean", "talking": "clean"}
+                   "gta_heist": "clean", "talking": "clean", "vlog": "clean",
+                   "tutorial": "clean", "documentary": "cinematic",
+                   "travel": "cinematic"}
 
 
 def _focus_profile(profile) -> str:
     return _FOCUS_BY_GENRE.get(profile.genre, "follow")
+
+
+# Content whose clippable moments live in the transcript, not in signal energy.
+_SPEECH_LED = {"talking", "vlog", "documentary", "tutorial"}
+
+
+def _moment_source(profile) -> str:
+    return "speech" if profile.genre in _SPEECH_LED else "signal"
 
 
 @dataclass
@@ -54,6 +67,8 @@ class JobRequest:
     shorts: int = 0                  # how many vertical Shorts to also produce
     thumbnails: int = 1              # thumbnail candidates from real frames
     title_text: str | None = None    # creator's own title drawn on thumbnails
+    template: str = "auto"           # editing doctrine: auto|simple|vlog|
+                                     # tutorial|cinematic|montage
     aspect: str | None = None        # long-edit aspect (None = keep source)
     captions: str = "auto"           # auto | none | plain | karaoke
     language: str | None = None      # spoken-language ISO code; None = detect
@@ -158,6 +173,46 @@ def _needs_transcript(req: JobRequest, preset: dict, has_audio: bool) -> bool:
     return bool(preset["keep_dialogue"] or req.shorts)
 
 
+def _music_ratio(bundle) -> float | None:
+    """Fraction of audible time that is music/ambient rather than speech —
+    high audio energy where no speech is present. None if there's no audio."""
+    if not bundle.audio:
+        return None
+    audible = [i for i, a in enumerate(bundle.audio) if a > 0.05]
+    if not audible:
+        return None
+    speech = bundle.speech or [0.0] * len(bundle.audio)
+    music = sum(1 for i in audible if i >= len(speech) or speech[i] < 0.5)
+    return music / len(audible)
+
+
+def _has_persistent_face(video_path: str, duration: float,
+                         *, samples: int = 6) -> bool | None:
+    """Did a face show up across sampled frames? None when face detection is
+    unavailable (then the Director just doesn't use this cue)."""
+    from ..vision import FaceDetector
+
+    det = FaceDetector()
+    if not det.available:
+        return None
+    try:
+        import cv2  # type: ignore
+    except Exception:
+        return None
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None
+    hits = 0
+    for k in range(samples):
+        t = duration * (k + 0.5) / samples
+        cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+        ok, frame = cap.read()
+        if ok and det.detect(frame):
+            hits += 1
+    cap.release()
+    return hits >= max(2, samples // 3)   # a face in a third+ of samples
+
+
 def _agent(log: list, name: str, decision: str, detail: str = "") -> None:
     """One K Agent's decision in the job's audit chain — 'One Agent. One
     Responsibility.' made visible: who decided what, in order."""
@@ -228,23 +283,43 @@ def _render_long_edit(
 
     music_track, music_asset = _pick_music(
         library_root, preset.get("music") if req.music else None, und.has_audio)
+    # Duck the bed under narration for speech-led content, so the voice stays
+    # clear; leave it flat under gameplay/travel where there's no narration.
+    duck = bool(music_track) and und.profile.genre in _SPEECH_LED
     if music_track:
-        rationale.append(f"Music bed from the K Library "
-                         f"({music_asset.path.name}), mixed under the audio.")
+        rationale.append(
+            f"Music bed from the K Library ({music_asset.path.name}), "
+            + ("ducked under the narration." if duck else "mixed under the audio."))
 
-    # The long edit takes the style's color grade; event-keyframed effects
-    # (slow-mo, pulses) stay on Shorts, where the OCR pass is bounded.
+    # K Montage: Ken Burns on held shots for cinematic styles; auto B-roll
+    # cutaways over narration when the K Library has b-roll footage.
+    ken_burns = style in ("cinematic",) or und.profile.genre in ("documentary",
+                                                                 "travel")
+    broll_ops, broll_notes = ([], [])
+    if und.profile.genre in ("documentary", "vlog") and use_subs:
+        from ..dsl import Cut
+        from ..montage import plan_broll
+        preview_cuts = [Cut(s.span.start, s.span.end) for s in plan.segments]
+        broll_ops, broll_notes = plan_broll(preview_cuts, transcript, library_root)
+    if ken_burns:
+        rationale.append("Slow Ken Burns push on the held shots.")
+    rationale.extend(broll_notes)
+
     from ..motion import STYLES
     grade = (STYLES.get(style) or {}).get("grade")
-    if grade:
-        rationale.append(f"'{grade}' color grade ({style} style).")
-        _agent(agents, "K Motion", f"'{grade}' grade on the full edit",
+    motion_bits = [b for b in (grade and f"'{grade}' grade",
+                               ken_burns and "Ken Burns",
+                               broll_ops and f"{len(broll_ops)} B-roll cutaway(s)")
+                   if b]
+    if motion_bits:
+        _agent(agents, "K Motion", ", ".join(motion_bits) + " on the full edit",
                f"style '{style}'")
 
     program = compose_program(
         plan, transcript=transcript if use_subs else None,
         subtitles=use_subs and not karaoke, captions=use_subs and karaoke,
-        zoom=bool(preset["zoom"]), music_track=music_track,
+        zoom=bool(preset["zoom"]), music_track=music_track, duck_music=duck,
+        ken_burns=ken_burns, broll=broll_ops,
         height=req.height, aspect=req.aspect, focus_x=focus,
         grade=grade, rationale=rationale)
 
@@ -295,6 +370,11 @@ def run_job(
     the analysis so *future* runs on the same video skip it too.
     """
     req = req or JobRequest()
+    # A chosen template fills the knobs the creator left on 'auto', before the
+    # Director's content-based auto-selection runs.
+    from .templates import apply_template
+    template_notes = apply_template(req, req.template) if req.template != "auto" \
+        else []
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     cache = AnalysisCache(cache_dir) if cache_dir else None
@@ -310,6 +390,8 @@ def run_job(
     preset = EDITING_PRESETS[und.profile.preset]
 
     agents: list[dict] = []
+    if template_notes:
+        _agent(agents, "K Director", template_notes[0])
     style = (req.style if req.style != "auto"
              else _STYLE_BY_GENRE.get(und.profile.genre, "clean"))
     _agent(agents, "K Director",
@@ -323,20 +405,26 @@ def run_job(
         transcript = _cached_transcript(video_path, cache, want_words,
                                         req.language, progress)
 
-        # With the transcript in hand, the Director can recognize *talking*
-        # content (vlog/podcast) — an edit driven by speech, not by action.
+        # With the transcript in hand, the Director re-recognizes the content
+        # family — vlog / documentary / tutorial / travel, not just gameplay —
+        # using speech coverage, whether a face persists, and music vs voice.
         if transcript and und.bundle.duration > 0:
             ratio = sum(s.end - s.start for s in transcript) / und.bundle.duration
-            better = detect_content([lab.description for lab in und.labels],
-                                    speech_ratio=ratio)
+            has_faces = _has_persistent_face(video_path, und.bundle.duration)
+            better = detect_content(
+                [lab.description for lab in und.labels], speech_ratio=ratio,
+                has_faces=has_faces, music_ratio=_music_ratio(und.bundle))
             if better.preset != und.profile.preset:
                 progress(f"Re-recognized as {better.label} "
                          f"({ratio:.0%} of it is speech).")
                 und.profile = better
                 preset = EDITING_PRESETS[better.preset]
+                style = (req.style if req.style != "auto"
+                         else _STYLE_BY_GENRE.get(better.genre, "clean"))
                 _agent(agents, "K Director",
                        f"re-recognized as {better.label} "
-                       f"({ratio:.0%} speech coverage)")
+                       f"({ratio:.0%} speech" +
+                       (", face on screen" if has_faces else "") + ")")
 
     prov_log = str(out / "provenance.jsonl")
     deliverables: list[dict] = []
@@ -359,19 +447,26 @@ def run_job(
                 _agent(agents, "K Memory",
                        f"taste model loaded ({taste['n_examples']} judged "
                        f"clips, train acc {taste['train_accuracy']:.0%})")
+        source = _moment_source(und.profile)
         shorts_manifest = make_shorts(
             video_path, str(out), top_n=req.shorts, spec=spec,
             transcript=transcript, bundle=und.bundle,
-            focus_profile=_focus_profile(und.profile), taste_model=taste,
+            focus_profile=_focus_profile(und.profile),
+            moment_source=source, taste_model=taste,
             progress=progress, provenance_log=prov_log)
         shorts = shorts_manifest["shorts"]
-        n_events = sum(len(s.get("game_events", [])) for s in shorts)
-        _agent(agents, "K GameSense",
-               f"read {n_events} on-screen/announcer event(s) across the "
-               f"candidate windows")
-        _agent(agents, "K Clipper",
-               f"ranked a {req.shorts * 3}-candidate pool, delivered "
-               f"{len(shorts)} distinct moment(s), event-adjusted")
+        if source == "speech":
+            _agent(agents, "K Story",
+                   f"found the top spoken moments in the transcript, "
+                   f"delivered {len(shorts)} distinct clip(s)")
+        else:
+            n_events = sum(len(s.get("game_events", [])) for s in shorts)
+            _agent(agents, "K GameSense",
+                   f"read {n_events} on-screen/announcer event(s) across the "
+                   f"candidate windows")
+            _agent(agents, "K Clipper",
+                   f"ranked a {req.shorts * 3}-candidate pool, delivered "
+                   f"{len(shorts)} distinct moment(s), event-adjusted")
         _agent(agents, "K Motion",
                f"'{style}' treatment on the Shorts "
                f"(slow-mo/pulses/shake keyframed on the events)")

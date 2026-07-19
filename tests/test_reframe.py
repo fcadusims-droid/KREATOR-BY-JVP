@@ -82,7 +82,7 @@ def test_clamp_focus_bounds_the_crop():
 def test_focus_profiles_exist_and_center_is_free():
     from kreator.reframe import FOCUS_PROFILES, cut_focus_centers
 
-    assert set(FOCUS_PROFILES) == {"fps", "follow", "center"}
+    assert {"fps", "follow", "center"} <= set(FOCUS_PROFILES)
     fps, follow = FOCUS_PROFILES["fps"], FOCUS_PROFILES["follow"]
     assert fps["center_weight"] > follow["center_weight"]
     assert fps["max_offset"] < follow["max_offset"]

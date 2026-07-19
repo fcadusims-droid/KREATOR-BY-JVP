@@ -103,6 +103,7 @@ def make_shorts(
     bundle=None,
     focus_profile: str = "follow",
     gamesense: bool = True,
+    moment_source: str = "signal",
     taste_model: dict | None = None,
     provenance_log: str | None = None,
     progress=lambda s: None,
@@ -133,18 +134,28 @@ def make_shorts(
         bundle = analyze_video(video_path)
     has_audio = any(a > 0.0 for a in bundle.audio)
 
-    progress("Ranking the best moments…")
-    evidences = KAnalyst().analyze(bundle, video_path=video_path)
-    # Rank extra candidates: fitting a span to Short length can make two
-    # nearby moments overlap heavily even though their raw windows didn't
-    # (seen on real footage: moments 8s apart became near-identical 15s
-    # Shorts). Dedup happens *after* fitting, so extras fill the gaps.
-    pool = KClipper().rank(evidences, top_n=top_n * 3)
-    pool_spans = [fit_span(c.span, bundle.duration, spec) for c in pool]
+    if moment_source == "speech" and transcript:
+        # Talking content: the clippable moments live in what was said, not in
+        # signal energy. K Story finds them (already clip-length windows).
+        progress("Finding the best spoken moments (K Story)…")
+        from ..story import story_moments
+        pool = story_moments(transcript, bundle=bundle, top_n=top_n * 3,
+                             min_len=spec.min_len, max_len=spec.max_len)
+        pool_spans = [m.span for m in pool]
+    else:
+        progress("Ranking the best moments…")
+        pool = KClipper().rank(
+            KAnalyst().analyze(bundle, video_path=video_path), top_n=top_n * 3)
+        # Rank extra candidates: fitting a span to Short length can make two
+        # nearby moments overlap heavily even though their raw windows didn't
+        # (seen on real footage: moments 8s apart became near-identical 15s
+        # Shorts). Dedup happens *after* fitting, so extras fill the gaps.
+        pool_spans = [fit_span(c.span, bundle.duration, spec) for c in pool]
 
     # GameSense pass: what did the game itself say happened in each window?
+    # Skipped for speech-sourced (talking) content — there is no game HUD.
     hud_events: list = []
-    if gamesense and pool_spans:
+    if gamesense and pool_spans and moment_source != "speech":
         progress("Reading the game's screen (OCR over candidate windows)…")
         hud_events = read_screen_events(
             video_path, [(s.start, s.end) for s in pool_spans])
@@ -187,7 +198,8 @@ def make_shorts(
     for i, (cand, span, (adj, window, reasons)) in enumerate(
             zip(candidates, fitted, extras), start=1):
         progress(f"Rendering Short {i}/{len(candidates)}…")
-        rationale = [f"Signal rank #{cand.rank}: {cand.rationale}"] + reasons
+        lead = "Story" if moment_source == "speech" else "Signal"
+        rationale = [f"{lead} rank #{cand.rank}: {cand.rationale}"] + reasons
         program = build_short_program(
             span, spec, focus_x=focus[i - 1], transcript=transcript,
             events=window, rationale=rationale)

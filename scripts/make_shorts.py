@@ -26,9 +26,11 @@ def main() -> int:
     ap.add_argument("--max-len", type=float, default=60.0, help="maximum Short length (s)")
     ap.add_argument("--aspect", default="9:16", choices=["9:16", "1:1", "16:9", "source"],
                     help="output aspect ('source' keeps the original)")
-    ap.add_argument("--focus", default="follow", choices=["fps", "follow", "center"],
+    ap.add_argument("--focus", default="follow",
+                    choices=["fps", "follow", "center", "face"],
                     help="crop policy: 'fps' anchors near the crosshair "
                          "(HUD-centered shooters), 'follow' tracks the action, "
+                         "'face' tracks the speaker (talking content), "
                          "'center' is a fixed center crop")
     ap.add_argument("--height", type=int, default=1080, choices=[480, 720, 1080])
     ap.add_argument("--speech", action="store_true",

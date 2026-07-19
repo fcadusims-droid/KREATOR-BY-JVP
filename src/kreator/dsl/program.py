@@ -167,15 +167,43 @@ class Transition:
 
 @dataclass(frozen=True)
 class Music:
-    """A background track — a real, free-to-use file from the K Library."""
+    """A background track — a real, free-to-use file from the K Library.
+
+    ``duck`` sidechain-compresses the music under the creator's own audio, so
+    a narration/vlog voice stays clear over the bed (the documentary staple).
+    """
     track: str
     start: float
     end: float
     volume: float = 0.25
+    duck: bool = False
 
     def to_dict(self) -> dict:
-        return {"type": "music", "track": self.track, "start": round(self.start, 3),
-                "end": round(self.end, 3), "volume": self.volume}
+        d = {"type": "music", "track": self.track, "start": round(self.start, 3),
+             "end": round(self.end, 3), "volume": self.volume}
+        if self.duck:
+            d["duck"] = True
+        return d
+
+
+@dataclass(frozen=True)
+class KenBurns:
+    """A slow, continuous zoom/pan across an edited-time window — the cinematic
+    move over a held or scenic shot (and the only way a still photo breathes).
+    Zooms from ``z_from`` to ``z_to``; ``pan`` is -1 (left→right drift), 0
+    (centered), or 1 (right→left). Real pixels throughout — just a moving crop.
+    """
+    start: float
+    end: float
+    z_from: float = 1.0
+    z_to: float = 1.12
+    pan: float = 0.0
+    reason: str = ""
+
+    def to_dict(self) -> dict:
+        return {"type": "ken_burns", "start": round(self.start, 3),
+                "end": round(self.end, 3), "z_from": self.z_from,
+                "z_to": self.z_to, "pan": self.pan, "reason": self.reason}
 
 
 @dataclass(frozen=True)
@@ -243,6 +271,7 @@ class EditProgram:
     caption_style: CaptionStyle | None = None
     zooms: list[Zoom] = field(default_factory=list)
     punch_zooms: list[PunchZoom] = field(default_factory=list)
+    ken_burns: list[KenBurns] = field(default_factory=list)
     shakes: list[Shake] = field(default_factory=list)
     grade: Grade | None = None
     transitions: list[Transition] = field(default_factory=list)
@@ -270,6 +299,7 @@ class EditProgram:
                 + [c.to_dict() for c in self.captions]
                 + [z.to_dict() for z in self.zooms]
                 + [p.to_dict() for p in self.punch_zooms]
+                + [k.to_dict() for k in self.ken_burns]
                 + [s.to_dict() for s in self.shakes]
                 + ([self.grade.to_dict()] if self.grade else [])
                 + [t.to_dict() for t in self.transitions]

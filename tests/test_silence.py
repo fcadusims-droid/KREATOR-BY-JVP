@@ -42,11 +42,18 @@ def test_empty_transcript_empty_plan():
 
 def test_detects_talking_content_from_speech_ratio():
     descs = ["a man talking to the camera in a room"]
+    # High speech + a talking-head visual → a speech-driven family (vlog).
     prof = detect_content(descs, speech_ratio=0.8)
-    assert prof.preset == "talking"
-    # Same descriptions but almost no speech → not talking content.
+    assert prof.preset in ("talking", "vlog")
+    assert not EDITING_PRESETS_SPEECHLESS(prof.preset)
+    # Same descriptions but almost no speech → not speech-driven.
     prof = detect_content(descs, speech_ratio=0.1)
-    assert prof.preset != "talking"
+    assert prof.preset not in ("talking", "vlog")
+
+
+def EDITING_PRESETS_SPEECHLESS(preset: str) -> bool:
+    from kreator.director import EDITING_PRESETS
+    return EDITING_PRESETS[preset]["keep_dialogue"] is False
 
 
 def test_gameplay_not_mistaken_for_talking():

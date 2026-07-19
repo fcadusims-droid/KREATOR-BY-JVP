@@ -11,3 +11,7 @@ faster-whisper>=1.0            # CPU dialogue transcription (K Editor --speech)
 pytesseract>=0.3.10            # K GameSense: reads the game's HUD text
                                # (needs the tesseract binary: apt-get install
                                # tesseract-ocr; degrades gracefully without it)
+# K Vision (face-aware reframe) uses OpenCV's YuNet face detector. The model
+# (~230 KB, Apache-2.0) is resolved from KREATOR_FACE_MODEL, a vendored copy,
+# or an OpenCV data dir; without it, face reframing falls back to motion.
+# Download: https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet

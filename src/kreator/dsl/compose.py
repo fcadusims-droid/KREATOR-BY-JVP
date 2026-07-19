@@ -39,6 +39,9 @@ def compose_program(
     transitions: bool = False,
     music_track: str | None = None,
     music_volume: float = _MUSIC_VOLUME,
+    duck_music: bool = False,
+    ken_burns: bool = False,
+    broll: list | None = None,
     height: int | None = None,
     aspect: str | None = None,
     reframe_strategy: str = "crop",
@@ -86,12 +89,19 @@ def compose_program(
             elapsed += c.duration
             trans.append(Transition(elapsed, "crossfade", _XFADE))
 
+    # Ken Burns: a slow push on the longest held shots (cinematic/travel).
+    ken: list = []
+    if ken_burns and cuts:
+        from ..montage import plan_ken_burns
+        ken = plan_ken_burns(cuts)
+
     music: list[Music] = []
     if music_track and cuts:
         # One background bed spanning the whole edited timeline. The executor
         # loops it and trims to the video length, so an exact end isn't needed.
-        edited_duration = sum(c.duration for c in cuts)
-        music.append(Music(music_track, 0.0, edited_duration, music_volume))
+        edited_duration = sum(c.edited_duration for c in cuts)
+        music.append(Music(music_track, 0.0, edited_duration, music_volume,
+                           duck=duck_music))
 
     reframe = None
     if aspect:
@@ -103,8 +113,8 @@ def compose_program(
 
     return EditProgram(cuts=cuts, subtitles=subs, captions=caps,
                        caption_style=caption_style if caps else None,
-                       zooms=zooms, transitions=trans,
-                       music=music, reframe=reframe,
+                       zooms=zooms, ken_burns=ken, transitions=trans,
+                       music=music, broll=list(broll or []), reframe=reframe,
                        grade=Grade(grade) if grade else None,
                        height=height,
                        rationale=list(rationale or []))

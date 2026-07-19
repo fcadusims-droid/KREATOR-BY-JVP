@@ -98,18 +98,37 @@ _GRADES = {
 }
 
 
-def _punch_zoom_chain(program: EditProgram, dims) -> str:
-    """A zoompan whose zoom is a sum of exponential pulses, one per
-    PunchZoom — snaps to peak at the event frame and eases out. Runs on the
-    concatenated (post-reframe) stream, so ``dims`` are its dimensions."""
-    if not program.punch_zooms:
+def _zoom_chain(program: EditProgram, dims) -> str:
+    """One zoompan combining every zoom move: PunchZoom pulses (exponential
+    snap-and-ease at the event) and KenBurns ramps (a slow linear push across
+    a window). Runs on the concatenated (post-reframe) stream, so ``dims`` are
+    its dimensions. Empty when there is no zoom move."""
+    if not (program.punch_zooms or program.ken_burns):
         return ""
-    pulses = "+".join(
-        f"{p.amount}*exp(-abs(in-{p.at * 30:.0f})/{max(p.width, 0.1) * 15:.1f})"
-        for p in program.punch_zooms)
+    terms = ["1"]
+    for p in program.punch_zooms:
+        terms.append(f"{p.amount}*exp(-abs(in-{p.at * 30:.0f})"
+                     f"/{max(p.width, 0.1) * 15:.1f})")
+    for k in program.ken_burns:
+        f0, f1 = k.start * 30, k.end * 30
+        span = max(f1 - f0, 1.0)
+        # (z_from-1) + (z_to-z_from)*progress, active only inside the window.
+        terms.append(
+            f"between(in,{f0:.0f},{f1:.0f})*"
+            f"({k.z_from - 1:+.3f}{k.z_to - k.z_from:+.3f}"
+            f"*clip((in-{f0:.0f})/{span:.1f},0,1))")
+    # Horizontal pan for a Ken Burns move: drift the crop across the frame.
+    pan = program.ken_burns[0].pan if program.ken_burns else 0.0
+    if pan:
+        f0, f1 = program.ken_burns[0].start * 30, program.ken_burns[0].end * 30
+        span = max(f1 - f0, 1.0)
+        x = (f"iw/2-(iw/zoom/2)+{pan:.2f}*(iw-iw/zoom)"
+             f"*clip((in-{f0:.0f})/{span:.1f},0,1)")
+    else:
+        x = "iw/2-(iw/zoom/2)"
     w, h = dims
-    return (f",zoompan=z='1+{pulses}'"
-            f":d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+    return (f",zoompan=z='{'+'.join(terms)}'"
+            f":d=1:x='{x}':y='ih/2-(ih/zoom/2)'"
             f":s={w}x{h}:fps=30")
 
 
@@ -245,11 +264,11 @@ def _build_filtergraph(program: EditProgram, has_audio: bool,
             vlabel = f"bo{j}"
     # K Motion effects run on the assembled (post-reframe) stream, before
     # captions burn — text must not zoom or shake.
-    if program.punch_zooms:
+    if program.punch_zooms or program.ken_burns:
         if main_dims is None:
-            raise ValueError("punch_zoom requires the main video dimensions")
+            raise ValueError("zoom moves require the main video dimensions")
         dims = _reframed_dims(main_dims[0], main_dims[1], program)
-        parts.append(f"[{vlabel}]{_punch_zoom_chain(program, dims)[1:]}[pz];")
+        parts.append(f"[{vlabel}]{_zoom_chain(program, dims)[1:]}[pz];")
         vlabel = "pz"
     if program.shakes:
         parts.append(f"[{vlabel}]{_shake_chain(program)[1:]}[shk];")
@@ -276,17 +295,30 @@ def _build_filtergraph(program: EditProgram, has_audio: bool,
     # would divide everything by the input count.
     alabel = "outa"
     layers: list[str] = []
+    voice = "outa"
+    duck = has_audio and program.music and program.music[0].duck
+    if duck:
+        # Split the creator's audio: one copy is the key that ducks the music.
+        parts.append("[outa]asplit=2[voice][duckkey];")
+        voice = "voice"
     if has_audio and program.music and music_idx is not None:
         vol = program.music[0].volume
         parts.append(f"[{music_idx}:a]volume={vol}[mus];")
-        layers.append("mus")
+        if duck:
+            # Sidechain-compress the bed under the voice — the narration cuts
+            # through, the music swells back in the gaps.
+            parts.append("[mus][duckkey]sidechaincompress="
+                         "threshold=0.03:ratio=8:attack=20:release=350[musd];")
+            layers.append("musd")
+        else:
+            layers.append("mus")
     for j, (sf, si) in enumerate(zip(program.sfx, sfx_idxs)):
         ms = int(round(sf.at * 1000))
         parts.append(f"[{si}:a]adelay={ms}|{ms},volume={sf.volume}[sx{j}];")
         layers.append(f"sx{j}")
     if has_audio and layers:
         labels = "".join(f"[{l}]" for l in layers)
-        parts.append(f"[outa]{labels}amix=inputs={1 + len(layers)}:"
+        parts.append(f"[{voice}]{labels}amix=inputs={1 + len(layers)}:"
                      f"duration=first:dropout_transition=0:normalize=0[amx];")
         alabel = "amx"
 
@@ -319,9 +351,9 @@ def execute_program(
         subs_path = str(Path(tmp) / "subs.srt")
         write_srt(program.subtitles, subs_path)
 
-    # B-roll overlays and zoom pulses need the main video's dimensions.
+    # B-roll overlays and zoom moves (pulses, Ken Burns) need the main dims.
     main_dims = None
-    if program.broll or program.punch_zooms:
+    if program.broll or program.punch_zooms or program.ken_burns:
         from ..validator.check import probe
 
         info = probe(video_path)

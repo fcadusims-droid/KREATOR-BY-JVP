@@ -40,9 +40,21 @@ jobs with `--instruction`, `scripts/make_shorts.py` for Shorts alone,
 Built on one signal-first pipeline:
 
 - **Condense** a long recording into its interesting parts (K Editor).
+- **Edit any kind of video, not just gameplay.** A content-family profiler
+  recognizes vlog / documentary / tutorial / travel / gameplay from scene
+  cues + speech coverage + whether a face persists + music-vs-voice, and
+  routes each to a fitting editing doctrine.
 - **Create vertical Shorts** from the top-ranked moments (K Clipper → 9:16
-  reframe that follows the action → render), with HUD-aware focus profiles
-  (`fps` anchors the crop at the crosshair; `follow` tracks off-center action).
+  reframe → render), with content-aware focus profiles: `fps` anchors the
+  crop at the crosshair, `follow` tracks off-center action, and `face`
+  (K Vision, YuNet) tracks the speaker for talking content.
+- **Find the moment in what was *said*** (K Story): for vlog / podcast /
+  documentary the clippable moments are hooks, questions, laughs, and
+  emphasis in the transcript — not signal energy. Deterministic en+pt scorer
+  plus prosody.
+- **Pick a template** — the simple → cinematic dial (`simple`, `vlog`,
+  `tutorial`, `cinematic`, `montage`) bundles cut intensity, motion style,
+  captions, and music into one choice; `auto` lets the Director decide.
 - **Read the game's own screen** (K GameSense): the whole frame is OCR'd —
   any game, any HUD layout — and classified against a multi-game vocabulary
   (kills, multikill medals, deaths, victories, objectives) plus novel
@@ -184,7 +196,10 @@ src/kreator/
   reframe/            # aspect reframing: focus-follow crop math for 9:16 Shorts
   shorts/             # ranked moments → finished vertical Shorts + manifest
   gamesense/          # K GameSense: OCR the HUD → game events → viral scoring
+  vision/             # K Vision: YuNet face detection → speaker-tracked reframe
+  story/              # K Story: clippable moments from the transcript (talking)
   motion/             # K Motion: slow-mo/pulse/shake/grade planned on the events
+  montage/            # K Montage: Ken Burns, auto b-roll, music ducking
   learn/              # K Learn: the creator's taste model (verdicts → ranking)
   thumbnail/          # K Thumbnail: strongest real frames, treated, never generated
   director/           # autonomy: recognize content → preset → multi-deliverable job

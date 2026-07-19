@@ -12,8 +12,8 @@ built with rules instead of a trained model — see ``docs/training-vs-dsl.md``.
 """
 
 from .program import (Broll, Caption, CaptionStyle, Cut, EditProgram, Grade,
-                      Music, PunchZoom, Reframe, Sfx, Shake, Subtitle,
-                      Transition, Zoom)
+                      KenBurns, Music, PunchZoom, Reframe, Sfx, Shake,
+                      Subtitle, Transition, Zoom)
 from .timeline import source_to_edited, subtitles_from_transcript
 from .captions import captions_from_transcript, write_ass
 from .compose import compose_program
@@ -21,7 +21,7 @@ from .execute import execute_program
 
 __all__ = [
     "Cut", "Subtitle", "Caption", "CaptionStyle", "Zoom", "PunchZoom",
-    "Shake", "Grade", "Transition",
+    "KenBurns", "Shake", "Grade", "Transition",
     "Music", "Sfx", "Broll", "Reframe", "EditProgram",
     "source_to_edited", "subtitles_from_transcript",
     "captions_from_transcript", "write_ass",
