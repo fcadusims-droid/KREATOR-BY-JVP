@@ -281,23 +281,43 @@ def _render_long_edit(
 
     music_track, music_asset = _pick_music(
         library_root, preset.get("music") if req.music else None, und.has_audio)
+    # Duck the bed under narration for speech-led content, so the voice stays
+    # clear; leave it flat under gameplay/travel where there's no narration.
+    duck = bool(music_track) and und.profile.genre in _SPEECH_LED
     if music_track:
-        rationale.append(f"Music bed from the K Library "
-                         f"({music_asset.path.name}), mixed under the audio.")
+        rationale.append(
+            f"Music bed from the K Library ({music_asset.path.name}), "
+            + ("ducked under the narration." if duck else "mixed under the audio."))
 
-    # The long edit takes the style's color grade; event-keyframed effects
-    # (slow-mo, pulses) stay on Shorts, where the OCR pass is bounded.
+    # K Montage: Ken Burns on held shots for cinematic styles; auto B-roll
+    # cutaways over narration when the K Library has b-roll footage.
+    ken_burns = style in ("cinematic",) or und.profile.genre in ("documentary",
+                                                                 "travel")
+    broll_ops, broll_notes = ([], [])
+    if und.profile.genre in ("documentary", "vlog") and use_subs:
+        from ..dsl import Cut
+        from ..montage import plan_broll
+        preview_cuts = [Cut(s.span.start, s.span.end) for s in plan.segments]
+        broll_ops, broll_notes = plan_broll(preview_cuts, transcript, library_root)
+    if ken_burns:
+        rationale.append("Slow Ken Burns push on the held shots.")
+    rationale.extend(broll_notes)
+
     from ..motion import STYLES
     grade = (STYLES.get(style) or {}).get("grade")
-    if grade:
-        rationale.append(f"'{grade}' color grade ({style} style).")
-        _agent(agents, "K Motion", f"'{grade}' grade on the full edit",
+    motion_bits = [b for b in (grade and f"'{grade}' grade",
+                               ken_burns and "Ken Burns",
+                               broll_ops and f"{len(broll_ops)} B-roll cutaway(s)")
+                   if b]
+    if motion_bits:
+        _agent(agents, "K Motion", ", ".join(motion_bits) + " on the full edit",
                f"style '{style}'")
 
     program = compose_program(
         plan, transcript=transcript if use_subs else None,
         subtitles=use_subs and not karaoke, captions=use_subs and karaoke,
-        zoom=bool(preset["zoom"]), music_track=music_track,
+        zoom=bool(preset["zoom"]), music_track=music_track, duck_music=duck,
+        ken_burns=ken_burns, broll=broll_ops,
         height=req.height, aspect=req.aspect, focus_x=focus,
         grade=grade, rationale=rationale)
 
