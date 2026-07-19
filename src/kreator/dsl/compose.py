@@ -47,6 +47,7 @@ def compose_program(
     reframe_strategy: str = "crop",
     focus_x: list[float] | None = None,
     grade: str | None = None,
+    color_fix=None,
     rationale: list[str] | None = None,
 ) -> EditProgram:
     """Build the program. ``plan`` is a ``kreator.editor.EditPlan``;
@@ -115,6 +116,7 @@ def compose_program(
                        caption_style=caption_style if caps else None,
                        zooms=zooms, ken_burns=ken, transitions=trans,
                        music=music, broll=list(broll or []), reframe=reframe,
+                       color_fix=color_fix,
                        grade=Grade(grade) if grade else None,
                        height=height,
                        rationale=list(rationale or []))

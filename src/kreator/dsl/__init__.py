@@ -11,8 +11,8 @@ This is Level 3 of the proposed training plan (an operations DSL + executor),
 built with rules instead of a trained model — see ``docs/training-vs-dsl.md``.
 """
 
-from .program import (Broll, Caption, CaptionStyle, Cut, EditProgram, Grade,
-                      KenBurns, Music, PunchZoom, Reframe, Sfx, Shake,
+from .program import (Broll, Caption, CaptionStyle, ColorFix, Cut, EditProgram,
+                      Grade, KenBurns, Music, PunchZoom, Reframe, Sfx, Shake,
                       Subtitle, Transition, Zoom)
 from .timeline import source_to_edited, subtitles_from_transcript
 from .captions import captions_from_transcript, write_ass
@@ -21,7 +21,7 @@ from .execute import execute_program
 
 __all__ = [
     "Cut", "Subtitle", "Caption", "CaptionStyle", "Zoom", "PunchZoom",
-    "KenBurns", "Shake", "Grade", "Transition",
+    "KenBurns", "Shake", "Grade", "ColorFix", "Transition",
     "Music", "Sfx", "Broll", "Reframe", "EditProgram",
     "source_to_edited", "subtitles_from_transcript",
     "captions_from_transcript", "write_ass",

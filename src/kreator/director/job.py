@@ -54,6 +54,9 @@ def _focus_profile(profile) -> str:
 
 # Content whose clippable moments live in the transcript, not in signal energy.
 _SPEECH_LED = {"talking", "vlog", "documentary", "tutorial"}
+# Real-world (non-gameplay) content — gets auto color correction; gameplay
+# keeps its intentional look.
+_REALWORLD = _SPEECH_LED | {"travel"}
 
 
 def _moment_source(profile) -> str:
@@ -307,7 +310,18 @@ def _render_long_edit(
 
     from ..motion import STYLES
     grade = (STYLES.get(style) or {}).get("grade")
-    motion_bits = [b for b in (grade and f"'{grade}' grade",
+
+    # K Polish: auto white-balance + exposure for real-world footage (a phone
+    # vlog, a doc clip) — never gameplay, where the look is intentional.
+    color_fix = None
+    if und.profile.genre in _REALWORLD:
+        from ..polish import measure_color
+        color_fix = measure_color(video_path)
+        if color_fix:
+            rationale.append("Auto white-balance + exposure correction.")
+
+    motion_bits = [b for b in (color_fix and "color-corrected",
+                               grade and f"'{grade}' grade",
                                ken_burns and "Ken Burns",
                                broll_ops and f"{len(broll_ops)} B-roll cutaway(s)")
                    if b]
@@ -321,7 +335,7 @@ def _render_long_edit(
         zoom=bool(preset["zoom"]), music_track=music_track, duck_music=duck,
         ken_burns=ken_burns, broll=broll_ops,
         height=req.height, aspect=req.aspect, focus_x=focus,
-        grade=grade, rationale=rationale)
+        grade=grade, color_fix=color_fix, rationale=rationale)
 
     progress(f"Rendering the full edit at {req.height}p…")
     execute_program(video_path, program, out_path, has_audio=und.has_audio)
@@ -336,6 +350,23 @@ def _render_long_edit(
                       program=program.to_dict(),
                       assets=[music_track] if music_track else [])
 
+    # K Narrative: chapter the piece (documentary/long talking content). The
+    # chapters are on the *edited* timeline, so they map to the delivered cut.
+    chapters: list[dict] = []
+    if transcript and und.profile.genre in _REALWORLD:
+        from ..dsl.timeline import source_to_edited
+        from ..narrative import chapter_transcript
+        cuts_for_map = program.cuts
+        src_chapters = chapter_transcript(transcript, scene_cuts=und.bundle.scene_cuts)
+        for ch in src_chapters:
+            es = source_to_edited(ch.start, cuts_for_map)
+            if es is not None:
+                chapters.append({"start": round(es, 2), "title": ch.title})
+        if len(chapters) > 1:
+            rationale.append(f"Split into {len(chapters)} chapters by topic.")
+            _agent(agents, "K Narrative",
+                   f"{len(chapters)} chapters by topic turn")
+
     return {
         "kind": "long_edit", "file": Path(out_path).name,
         "original_duration": plan.original_duration,
@@ -345,6 +376,7 @@ def _render_long_edit(
         "subtitles": len(program.subtitles), "captions": len(program.captions),
         "zooms": len(program.zooms), "music": len(program.music),
         "aspect": req.aspect, "rationale": program.rationale,
+        "chapters": chapters,
         "validation": report.to_dict(),
     }
 

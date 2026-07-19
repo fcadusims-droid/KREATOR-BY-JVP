@@ -273,6 +273,13 @@ def _build_filtergraph(program: EditProgram, has_audio: bool,
     if program.shakes:
         parts.append(f"[{vlabel}]{_shake_chain(program)[1:]}[shk];")
         vlabel = "shk"
+    if program.color_fix:
+        cf = program.color_fix
+        # Per-channel gains (white balance) then a brightness lift (exposure).
+        parts.append(
+            f"[{vlabel}]colorchannelmixer=rr={cf.r_gain:.3f}:gg={cf.g_gain:.3f}"
+            f":bb={cf.b_gain:.3f},eq=brightness={cf.brightness:.3f}[cfx];")
+        vlabel = "cfx"
     if program.grade and program.grade.preset in _GRADES:
         parts.append(f"[{vlabel}]{_GRADES[program.grade.preset]}[grd];")
         vlabel = "grd"
